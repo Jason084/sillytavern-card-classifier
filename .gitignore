@@ -1,0 +1,17 @@
+# Private card collection and generated working data
+/png/**
+/非角色卡/**
+/SillyInnkeeper-main/
+
+# Scan output will be generated per batch and must not be committed by default
+/reports/**
+/work/**
+
+# Local configuration and secrets
+.env
+.env.*
+!.env.example
+
+# Dependencies and build output
+node_modules/
+dist/

@@ -42,11 +42,10 @@ D:\\网盘\\百度网盘\\闲鱼三鱼
 ├─ reports/
 │  ├─ collection/         # 每次收集操作的独立日志
 │  └─ scans/              # 每次扫描的独立批次报告
-├─ src/                   # 按实施阶段编号的脚本
+├─ src/                   # 脚本保留历史阶段编号；04 已移除
 │  ├─ 01-collect-character-cards.ps1
 │  ├─ 02-scan-character-cards.mjs
 │  ├─ 03-detect-duplicates.mjs
-│  ├─ 04-classification-trial.mjs
 │  ├─ 05-classify-character-cards.mjs
 │  └─ 06-organize-character-cards.mjs
 ├─ SillyInnkeeper-main/   # 仅作格式兼容与实现参考的第三方项目
@@ -121,86 +120,56 @@ node .\src\03-detect-duplicates.mjs
 - `index-errors.jsonl`：无法恢复的历史索引坏记录；旧批次中字符串内的原始换行会兼容修复并计入汇总。合法的 Unicode 行分隔符 U+2028/U+2029 会原样保留，不会误判为 JSONL 记录边界。
 - `summary.json`：输入索引及各类分组数量。旧索引缺少角色内容哈希时，会从已提取的精简卡片字段生成稳定回退哈希。脚本不修改任何卡片。
 
-### 第四阶段：模型归纳分类体系
-
-按角色卡内容哈希去重后，确定性抽取兼顾规范版本、高频标签和长尾标签的代表性样本；默认抽取 800 张。便宜小模型分批提出候选类别，再汇总为 12–20 个互斥主分类。标签只用于改善抽样覆盖，不直接决定类别。
-
-`分类标准.md` 记录自然语言形式的个人偏好，例如不接受的内容和明确可以接受的内容。模型从角色卡的整体语义理解这些偏好；程序不把其中的词语当作匹配规则。
-
-第四、第五阶段已经内置起司 OpenAI-compatible Chat Completions 入口和模型。`--dry-run` 不需要密钥；实际调用前只需在当前 PowerShell 进程中提供密钥，不要把密钥写入仓库文件：
-
-```powershell
-$env:CHEESE_API_KEY = '你的起司 API 密钥'
-node .\src\04-classification-trial.mjs --dry-run
-```
-
-第四阶段默认使用 `https://cheeseapi.top/v1`、`gemini-3-pro-preview`、每批 20 张、最多 100 次 HTTP 调用和 4096 输出 token。第五阶段默认使用 `https://cheeseapi.cn/v1`、`gemini-3.6-flash`、每批 30 张、最多 1300 次 HTTP 调用和 4096 输出 token。两阶段硬上限合计 1400 次，某阶段未使用的额度不会自动转给另一阶段。
-
-需要临时替换服务或参数时，仍可在启动对应脚本前设置通用覆盖变量：
-
-```powershell
-$env:MODEL_API_BASE_URL = '其他 OpenAI-compatible 服务地址'
-$env:MODEL_API_KEY = '兼容的旧密钥变量'
-$env:MODEL_NAME = '其他模型名称'
-$env:MODEL_BATCH_SIZE = '20'
-$env:MODEL_CONCURRENCY = '2'              # 上限为 10
-$env:MODEL_MAX_ATTEMPTS = '2'             # 单次逻辑调用最多两次 HTTP 尝试
-$env:MODEL_MAX_OUTPUT_TOKENS = '4096'
-$env:MODEL_MAX_HTTP_REQUESTS = '100'
-```
-
-`--dry-run` 只抽样并打印批次数、并发、最大 HTTP 请求数和累计输入字节上限，不调用模型。确认预检输出后，使用其中的 `run_command` 从该批次开始：
-
-```powershell
-node .\src\04-classification-trial.mjs --resume=".\reports\classification-trials\<批次时间>"
-```
-
-默认安全机制包括：100 次累计 HTTP 请求硬上限、累计输入字节硬上限、三个失败批次后熔断、认证或额度类 `400/401/402/403` 错误立即停止，以及最低 80% 样本覆盖率。每次调用在发送前写入 `usage.jsonl`，续跑不会重置额度。可分别通过 `MODEL_MAX_HTTP_REQUESTS`、`MODEL_MAX_INPUT_BYTES`、`MODEL_MAX_BATCH_FAILURES` 和 `MODEL_MIN_SAMPLE_COVERAGE` 调整；提高第四或第五阶段额度时，应确保两个阶段的上限总和不超过实际购买次数。失败批次不会在普通续跑中自动重试；人工确认原因已解决后，显式添加 `--retry-errors`。
-
-可依次传入扫描批次目录（或 `index.jsonl`）、偏好文件、报告根目录和样本数。每完成一个批次就立即写检查点，结果位于 `reports/classification-trials/<UTC 批次时间>/`：
-
-- `sample.jsonl`：发送给模型的去重样本及最小化字段，每卡约 4,000 字符以内。
-- `proposal-checkpoint.jsonl`：逐批写入的成功或失败检查点；中断续跑不会重复成功批次。
-- `usage.jsonl`：每次 HTTP 尝试在发送前记录预留事件，完成后记录状态、输入/输出字节及端点返回的 token usage；不包含密钥、授权头或原始提示词。
-- `proposals.jsonl`：每个样本批次提出的类别候选。
-- `taxonomy.json`：汇总后的 12–20 个主分类及各自的纳入、排除边界。
-- `review.md`：便于人工阅读的分类体系。
-- `approval.json`：默认 `approved: false`。检查无误后改为 `true`，第五阶段才会接受该 taxonomy；批准后若修改 `taxonomy.json`，哈希校验会拒绝继续。
-
-第四阶段不再把失败批次递归拆成单条请求。非 JSON 响应只做有限重试，且输出受 `MODEL_MAX_OUTPUT_TOKENS` 限制。不要把 API 密钥写入仓库文件；只通过当前进程环境变量提供。
-
 ### 第五阶段：纯模型全量分类建议
 
-第五阶段必须使用第四阶段中已经人工批准且哈希一致的 taxonomy。每个唯一角色卡内容由便宜小模型判断一次，同卡不同封面或完全重复文件复用同一个模型结果；关键词不会直接产生分类、避雷或允许结论。
+旧第四阶段的 taxonomy 归纳与批准流程已经移除，`04-classification-trial.mjs` 不再存在。为避免已有报告和命令混淆，后续脚本暂时保留原来的 `05`、`06` 编号。
 
-- 模型输入仅包含名称、作者、标签、描述、性格、场景、作者备注和首条消息等裁剪后的必要字段。
+第五阶段直接读取 `分类标准.md`，由模型按角色卡整体语义判断避雷、人工复核或一个最合适的主分类，不把标准或角色卡中的单个词语当作机械匹配规则。每个唯一角色卡内容只判断一次，同卡不同封面或完全重复文件复用同一个结果。
+
+- 模型输入仅包含裁剪后的名称、作者、标签、描述、性格、场景、作者备注、首条消息、示例对话、备用开场、系统提示、后置提示和世界书等必要字段。
 - 保留模型版本、提示词版本和模型决定，保证结果可复核；为减少输出和截断风险，不要求模型返回置信度或理由。
 - 模型判定为避雷、不确定、无法归类或响应无效的记录进入人工复核，不参与第六阶段整理。
 - 完全没有可读语义字段的卡片直接进入人工复核。
+- 后续批次会收到已产生的主分类并优先复用；默认并发为 `1`，以降低同义分类名分裂的风险。提高并发可能需要在整理前人工合并近义类别。
 - 后续索引不保存完整原始角色卡 JSON，只保留路径、哈希、必要分类字段和复核信息。
 
-先预检最新的已批准 taxonomy 和调用量，不发送模型请求：
+脚本默认使用 `https://cheeseapi.cn/v1`、`gemini-3.6-flash`、每批 30 张、最多 1300 次 HTTP 调用和 4096 输出 token。先预检最新的完整扫描批次、分类标准和调用量，不发送模型请求，也不需要密钥：
 
 ```powershell
 node .\src\05-classify-character-cards.mjs --dry-run
 ```
 
-预检会建立可续跑批次，打印唯一卡数量、30 张批量对应的首轮调用数、剩余额度和 `run_command`。确认后运行输出中的续跑命令。也可以不预检，直接使用最新的已批准 taxonomy：
+预检会建立可续跑批次，打印唯一卡数量、首轮调用数、剩余额度和 `run_command`。确认后，在当前 PowerShell 进程提供密钥并运行输出中的续跑命令；不要把密钥写入仓库文件：
+
+```powershell
+$env:CHEESE_API_KEY = '你的起司 API 密钥'
+node .\src\05-classify-character-cards.mjs --resume=".\reports\classifications\<批次时间>"
+```
+
+也可以不预检直接运行，默认读取最新完整扫描批次和项目根目录的 `分类标准.md`：
 
 ```powershell
 node .\src\05-classify-character-cards.mjs
 ```
 
-也可依次指定扫描批次、taxonomy 批次和报告根目录：
+可依次指定扫描批次（或 `index.jsonl`）、分类标准文件和报告根目录：
 
 ```powershell
 node .\src\05-classify-character-cards.mjs `
   .\reports\scans\<扫描批次> `
-  .\reports\classification-trials\<taxonomy批次> `
+  .\分类标准.md `
   .\reports\classifications
 ```
 
-脚本默认使用第五阶段奶酪入口，也接受相同的 `MODEL_*` 覆盖配置。模型只返回 `id`、`decision` 和 `category`，不返回 `confidence` 或 `reason`；`exclude` 和 `review` 会进入人工复核。运行非预检命令本身即表示允许向所配置的模型服务发送最小化字段，不再提供纯关键词模式或 `--use-model` 开关。
+需要临时替换服务或参数时，可设置 `MODEL_API_BASE_URL`、`MODEL_API_KEY`、`MODEL_NAME`、`MODEL_BATCH_SIZE`、`MODEL_CONCURRENCY`（上限 10）、`MODEL_MAX_ATTEMPTS`（上限 3）、`MODEL_MAX_OUTPUT_TOKENS` 和 `MODEL_MAX_HTTP_REQUESTS`。模型只返回 `id`、`decision` 和 `category`；`exclude` 和 `review` 会进入人工复核。运行非预检命令即表示允许向所配置的模型服务发送最小化字段。
+
+分类批次位于 `reports/classifications/<UTC 毫秒时间戳-随机后缀>/`，主要包含：
+
+- `checkpoint.jsonl`：每个唯一内容的成功模型决定，用于安全续跑。
+- `usage.jsonl`：每次 HTTP 尝试发送前的额度预留，以及完成状态和端点 token usage；不包含密钥、授权头或原始提示词。
+- `classifications.jsonl`：映射回全部有效文件的最终分类建议；每条记录只有一个 `category`，原始 `tags` 仅供模型理解，不写入最终分类结果。
+- `review.csv`：全部分类建议的复核表，其中避雷、不确定、无语义内容和未完成项会标记为需要人工处理。
+- `model-errors.jsonl`、`index-errors.jsonl` 和 `summary.json`：错误与汇总信息。
 
 #### 第五阶段断点续跑
 
@@ -210,7 +179,7 @@ node .\src\05-classify-character-cards.mjs `
 node .\src\05-classify-character-cards.mjs --resume=".\reports\classifications\<批次时间>"
 ```
 
-续跑会校验 API 地址、模型名称、批量、重试和输出配置、提示词版本、扫描索引 SHA-256 与 taxonomy 哈希，只请求检查点中尚未成功的内容，并从 `usage.jsonl` 中已经预留的调用数继续累计。响应只遗漏少量卡时仅补发遗漏项；只有 413、批次整体拒绝或持续无效结构才递归拆批。完成后重新生成无重复的 `classifications.jsonl`、`review.csv` 和汇总；历史成功调用不会重复计费。
+续跑会校验 API 地址、模型名称、批量、重试和输出配置、提示词版本、扫描索引 SHA-256 与分类标准 SHA-256，只请求检查点中尚未成功的内容，并从 `usage.jsonl` 中已经预留的调用数继续累计。响应只遗漏少量卡时仅补发遗漏项；只有 413、批次整体拒绝或持续无效结构才递归拆批。完成后重新生成无重复的 `classifications.jsonl`、`review.csv` 和汇总；历史成功调用不会重复计费。
 
 ### 第六阶段：人工确认后的整理
 
@@ -228,7 +197,7 @@ node .\src\06-organize-character-cards.mjs
 node .\src\06-organize-character-cards.mjs --execute .\reports\organization-plans\<批次时间>
 ```
 
-执行时会核对批准文件、计划文件和每个来源文件的 SHA-256；目标已存在时拒绝覆盖。移动采用“复制、校验、删除来源”的顺序，并为每次执行单独保存 JSONL、CSV 和汇总日志。第四至第六阶段的新批次及执行日志使用毫秒时间戳和随机后缀，并通过排他创建避免同一时刻启动时覆盖或混写。
+执行时会核对批准文件、计划文件和每个来源文件的 SHA-256；目标已存在时拒绝覆盖。移动采用“复制、校验、删除来源”的顺序；若目标已经校验但来源删除失败，会记录可恢复的 `copied_source_delete_failed`，不会把已验证副本误报为普通失败。各阶段的新批次及执行日志使用毫秒时间戳和随机后缀，并通过排他创建避免同一时刻启动时覆盖或混写。
 
 ## 格式兼容基线
 
@@ -242,10 +211,10 @@ node .\src\06-organize-character-cards.mjs --execute .\reports\organization-plan
 
 ## 近期状况
 
-- **所处阶段**：扫描和去重已有历史全量结果；分类流程已改为“小模型归纳 taxonomy、人工批准、纯模型全量分类”，等待配置模型服务后生成新的 taxonomy 批次。
+- **所处阶段**：扫描和去重已有历史全量结果；旧第四阶段已移除，下一步是让第五阶段直接读取 `分类标准.md` 进行全量模型分类。
 - **具体备注**：
   - 第一阶段再次核对三处来源后补充复制 344 个同名不同内容版本；原始目录保持只读，工作目录现有 15,795 个 PNG/JSON。
   - 第二阶段批次 `20260821T062149Z` 共扫描 15,795 个文件，其中有效角色卡 15,134 个。
   - 修复 U+2028/U+2029 分行误判后，第三阶段批次 `20260821T063713Z` 读取 15,795 条索引记录，修复 0 条、坏记录 0 条；共发现 1,128 个复核组：219 个文件完全重复组、60 个同卡不同文件组、1 个同名不同内容组和 848 个疑似版本组。
-  - 旧第四阶段批次 `20260821T063735Z` 仅生成了 200 条关键词分层样本；旧第五阶段批次 `20260821T063801Z` 的 `model_enabled` 为 `false`，15,134 条记录全部进入人工复核，因此不属于有效分类结果。
+  - 历史第四阶段批次 `20260821T063735Z` 和旧第五阶段批次 `20260821T063801Z` 都不属于当前流程的有效分类结果；历史报告保持不变，但新代码不再读取 taxonomy 批次。
   - 第六阶段旧批次 `20260821T063956Z` 的整理预览计划为 0 条，没有执行复制或移动。历史报告保持不变，新流程会创建独立批次。

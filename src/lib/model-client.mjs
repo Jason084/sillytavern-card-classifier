@@ -12,6 +12,22 @@ export function compact(value, limit) {
 }
 
 export function cardModelInput(card, id) {
+  const compactArray = (value, count, limit) => (Array.isArray(value) ? value : []).slice(0, count).map((item) => compact(item, limit));
+  const compactStructure = (value, limit) => {
+    const output = []; const pending = [value]; const seen = new WeakSet(); let length = 0;
+    while (pending.length && length < limit) {
+      const current = pending.shift();
+      if (typeof current === 'string' || typeof current === 'number' || typeof current === 'boolean') {
+        const text = compact(current, Math.max(1, limit - length));
+        if (text) { output.push(text); length += text.length + 1; }
+      } else if (current && typeof current === 'object' && !seen.has(current)) {
+        seen.add(current);
+        const values = Array.isArray(current) ? current.slice(0, 30) : Object.values(current).slice(0, 50);
+        pending.push(...values);
+      }
+    }
+    return compact(output.join(' '), limit);
+  };
   return {
     id,
     name: compact(card.name, 160),
@@ -22,12 +38,20 @@ export function cardModelInput(card, id) {
     scenario: compact(card.scenario, 650),
     creator_notes: compact(card.creator_notes, 350),
     first_mes: compact(card.first_mes, 750),
+    mes_example: compact(card.mes_example, 600),
+    alternate_greetings: compactArray(card.alternate_greetings, 4, 240),
+    group_only_greetings: compactArray(card.group_only_greetings, 3, 200),
+    system_prompt: compact(card.system_prompt, 400),
+    post_history_instructions: compact(card.post_history_instructions, 400),
+    character_book: compactStructure(card.character_book, 700),
   };
 }
 
 export function hasSemanticContent(input) {
   return Boolean(input.name || input.creator || input.tags.length || input.description || input.personality
-    || input.scenario || input.creator_notes || input.first_mes);
+    || input.scenario || input.creator_notes || input.first_mes || input.mes_example
+    || input.alternate_greetings.length || input.group_only_greetings.length || input.system_prompt
+    || input.post_history_instructions || input.character_book);
 }
 
 export function sha256Text(value) {

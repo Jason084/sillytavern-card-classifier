@@ -26,7 +26,7 @@ $sourceDirectories = @(
 )
 
 $allowedExtensions = @('.png', '.json')
-$runId = Get-Date -Format 'yyyyMMdd-HHmmss'
+$runId = "$(Get-Date -Format 'yyyyMMdd-HHmmss-fff')-$([guid]::NewGuid().ToString('N').Substring(0, 8))"
 $records = [System.Collections.Generic.List[object]]::new()
 
 function Get-FileSha256([string]$Path) {

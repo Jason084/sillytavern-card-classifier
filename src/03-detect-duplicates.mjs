@@ -7,16 +7,15 @@
  * 输出：命令行第二个可选参数为报告根目录，默认 reports/duplicates；每次运行
  *       新建一个时间戳批次。不会修改、移动或删除角色卡文件。
  */
-import { mkdir, open, readdir, stat, writeFile } from 'node:fs/promises';
+import { open, readdir, stat, writeFile } from 'node:fs/promises';
 import { basename, dirname, extname, join, resolve } from 'node:path';
 import { readJsonlRecords } from './lib/read-jsonl.mjs';
 import { cardHashOf } from './lib/card-hash.mjs';
+import { createBatchDirectory } from './lib/run-files.mjs';
 
 const root = resolve(import.meta.dirname, '..');
 const scansDirectory = join(root, 'reports', 'scans');
 const reportsDirectory = resolve(process.argv[3] ?? join(root, 'reports', 'duplicates'));
-const runId = new Date().toISOString().replace(/[-:]/g, '').replace(/\.\d{3}Z$/, 'Z');
-const batchDirectory = join(reportsDirectory, runId);
 
 function csv(values) { return values.map((value) => `"${String(value ?? '').replaceAll('"', '""')}"`).join(',') + '\n'; }
 function normalized(value) { return String(value ?? '').normalize('NFKC').trim().toLocaleLowerCase('zh-CN'); }
@@ -28,7 +27,10 @@ async function latestIndex(directory) {
   for (const entry of await readdir(directory, { withFileTypes: true })) {
     if (!entry.isDirectory()) continue;
     const path = join(directory, entry.name, 'index.jsonl');
-    try { if ((await stat(path)).isFile()) candidates.push(path); } catch { /* Ignore incomplete batches. */ }
+    try {
+      const summaryPath = join(directory, entry.name, 'summary.json');
+      if ((await stat(path)).isFile() && (await stat(summaryPath)).isFile()) candidates.push(path);
+    } catch { /* Ignore incomplete batches. */ }
   }
   candidates.sort((a, b) => basename(dirname(b)).localeCompare(basename(dirname(a))));
   if (!candidates.length) throw new Error(`找不到扫描索引：${directory}`);
@@ -42,7 +44,8 @@ async function inputIndex(argument) {
 }
 
 const indexPath = await inputIndex(process.argv[2]);
-await stat(indexPath); await mkdir(batchDirectory, { recursive: true });
+await stat(indexPath);
+const { runId, batchDirectory } = await createBatchDirectory(reportsDirectory);
 const fileHashGroups = new Map(); const cardHashGroups = new Map();
 const fileNameGroups = new Map(); const identityGroups = new Map();
 let recordsRead = 0; let validCards = 0; let repairedIndexRecords = 0; let invalidIndexRecords = 0;

@@ -2,8 +2,21 @@ import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
 import test from 'node:test';
 import {
-  ModelBudgetExceededError, createRequestBudget, modelSettingsFromEnv, requestModelJson, summarizeRequestEvents,
+  ModelBudgetExceededError, cardModelInput, createRequestBudget, hasSemanticContent, modelSettingsFromEnv,
+  requestModelJson, summarizeRequestEvents,
 } from '../src/lib/model-client.mjs';
+
+test('模型分类输入覆盖决定整体语义的扩展字段', () => {
+  const input = cardModelInput({
+    name: '', creator: '', tags: [], description: '', personality: '', scenario: '', creator_notes: '', first_mes: '',
+    mes_example: '示例语义', alternate_greetings: ['备用开场'], group_only_greetings: [],
+    system_prompt: '系统设定', post_history_instructions: '后置设定', character_book: { entries: [{ content: '世界书语义' }] },
+  }, 'card-id');
+  assert.equal(input.mes_example, '示例语义');
+  assert.deepEqual(input.alternate_greetings, ['备用开场']);
+  assert(input.character_book.includes('世界书语义'));
+  assert.equal(hasSemanticContent(input), true);
+});
 
 async function withServer(handler, work) {
   const server = createServer(handler);

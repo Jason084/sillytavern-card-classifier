@@ -114,7 +114,7 @@ async function executePlan() {
   const counts = new Map(); let recordsRead = 0;
   for await (const line of createInterface({ input: createReadStream(planPath), crlfDelay: Infinity })) {
     if (!line.trim()) continue; const plan = JSON.parse(line); recordsRead += 1;
-    let result = 'skipped'; let detail = '';
+    let result = 'skipped'; let detail = ''; let destinationCreated = false; let destinationVerified = false;
     try {
       if (plan.status !== 'planned') throw new Error(`计划状态为 ${plan.status}`);
       if (plan.operation !== approval.operation) throw new Error('单条计划的操作类型与批准文件不一致');
@@ -123,11 +123,24 @@ async function executePlan() {
       try { await stat(plan.destination_path); throw new Error('目标文件已存在，拒绝覆盖'); } catch (error) { if (error.message === '目标文件已存在，拒绝覆盖') throw error; if (error.code !== 'ENOENT') throw error; }
       await mkdir(dirname(plan.destination_path), { recursive: true });
       await copyFile(plan.source_path, plan.destination_path, constants.COPYFILE_EXCL);
+      destinationCreated = true;
       const destinationHash = await sha256File(plan.destination_path);
-      if (destinationHash !== plan.sha256) { await unlink(plan.destination_path); throw new Error('复制后哈希校验失败，已删除不完整目标文件'); }
+      if (destinationHash !== plan.sha256) throw new Error('复制后哈希校验失败');
+      destinationVerified = true;
       if (approval.operation === 'move') await unlink(plan.source_path);
       result = approval.operation === 'move' ? 'moved' : 'copied';
-    } catch (error) { result = 'failed'; detail = error.message; }
+    } catch (error) {
+      if (destinationCreated && destinationVerified && approval.operation === 'move') {
+        result = 'copied_source_delete_failed';
+        detail = `目标副本已校验，但删除来源失败：${error.message}`;
+      } else {
+        result = 'failed'; detail = error.message;
+        if (destinationCreated && !destinationVerified) {
+          try { await unlink(plan.destination_path); detail += '；已清理未完成目标'; }
+          catch (cleanupError) { detail += `；清理未完成目标失败：${cleanupError.message}`; }
+        }
+      }
+    }
     const executedUtc = new Date().toISOString(); const record = { executed_utc: executedUtc, operation: approval.operation, source_path: plan.source_path,
       destination_path: plan.destination_path, sha256: plan.sha256, result, detail };
     await logHandle.write(`${JSON.stringify(record)}\n`); await csvHandle.write(csv([executedUtc, approval.operation, plan.source_path, plan.destination_path, plan.sha256, result, detail]));

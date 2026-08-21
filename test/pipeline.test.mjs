@@ -11,7 +11,8 @@ const root = resolve(import.meta.dirname, '..');
 const temporary = await mkdtemp(join(tmpdir(), 'character-card-pipeline-'));
 const input = join(temporary, 'input'); const scan = join(temporary, 'scan'); await mkdir(input); await mkdir(scan);
 const standards = join(temporary, '分类标准.md');
-await writeFile(standards, '# 避雷偏好\n- 不接受扶她、男娘、R18G 或纯英文卡。\n\n# 明确可以接受\n- 同人、规则类、网红和现实人物可以正常分类。\n', 'utf8');
+const standardsText = '# 避雷偏好\n- 不接受扶她、男娘、R18G 或纯英文卡。\n\n# 明确可以接受\n- 同人、规则类、网红和现实人物可以正常分类。\n';
+await writeFile(standards, standardsText, 'utf8');
 
 function hash(value) { return createHash('sha256').update(value).digest('hex'); }
 function card(name, tags = [], creator = '作者') {
@@ -26,6 +27,7 @@ const definitions = [
   ['f/低信心.json', 'low-confidence', 'card-four', card('低信心', ['同人'])],
   ['g/待重试.json', 'retry', 'card-five', card('无效重试', ['同人'])],
   ['h/空白.json', 'blank', 'card-six', card('', [], '')],
+  ['i/非法分类重试.json', 'invalid-category', 'card-seven', card('非法分类重试', ['特殊'])],
 ];
 const records = [];
 for (const [relativePath, contents, cardHashSeed, cardData] of definitions) {
@@ -53,32 +55,17 @@ assert.equal(parsedIndex.length, records.length);
 assert.equal(parsedIndex.filter((item) => item.repaired).length, 1);
 assert.equal(parsedIndex[0].record.card.description, '合法分隔符\u2028必须保留');
 
-const categoryNames = ['同人', '规则机制', '现代都市', '科幻未来', '奇幻冒险', '校园青春', '恐怖悬疑', '历史古风', '恋爱陪伴', '战斗冒险', '日常生活', '特殊设定'];
-const categories = categoryNames.map((name) => ({ name, description: `${name}的明确语义边界`, include: [`属于${name}的内容`], exclude: [`仅与${name}表面相似的内容`] }));
-let taxonomyInvalidJsonRemaining = 1;
 let leaveRetryCardIncomplete = true;
-let fatalTrialRequestsRemaining = null;
-let taxonomyProposalRequests = 0;
+let invalidCategoryRemaining = 1;
 const classificationRequests = [];
+const classificationStandardsSeen = [];
 const server = createServer(async (request, response) => {
   let raw = ''; for await (const chunk of request) raw += chunk;
   const body = JSON.parse(raw); const system = String(body.messages?.[0]?.content ?? '');
   let content;
-  if (system.includes('归纳便于文件夹整理')) {
-    taxonomyProposalRequests += 1;
-    if (fatalTrialRequestsRemaining !== null) {
-      if (fatalTrialRequestsRemaining <= 0) {
-        response.writeHead(403, { 'content-type': 'application/json' });
-        response.end(JSON.stringify({ error: { code: 'insufficient_user_quota' } }));
-        return;
-      }
-      fatalTrialRequestsRemaining -= 1;
-    }
-    if (taxonomyInvalidJsonRemaining > 0) { taxonomyInvalidJsonRemaining -= 1; content = 'not-json'; }
-    else content = JSON.stringify({ categories: categories.slice(0, 8) });
-  } else if (system.includes('合并为 12–20 个')) content = JSON.stringify({ categories });
-  else if (system.includes('已批准的分类体系')) {
+  if (system.includes('按用户给定的分类标准')) {
     const user = JSON.parse(body.messages[1].content); const cards = user.cards;
+    classificationStandardsSeen.push(user.classification_standards);
     classificationRequests.push(cards.map((item) => item.id));
     if (cards.length > 1 && cards.some((item) => item.description.includes('关键词不直接决定结果'))) {
       response.writeHead(413, { 'content-type': 'application/json' });
@@ -87,6 +74,8 @@ const server = createServer(async (request, response) => {
     }
     const results = cards.flatMap((item) => {
       if (item.name === '无效重试' && leaveRetryCardIncomplete) return [];
+      if (item.name === '非法分类重试' && invalidCategoryRemaining > 0) { invalidCategoryRemaining -= 1; return [{ id: item.id, decision: 'classify', category: '__模型内部__' }]; }
+      if (item.name === '非法分类重试') return [{ id: item.id, decision: 'classify', category: '特殊设定' }];
       if (item.tags.includes('futa')) return [{ id: item.id, decision: 'exclude', category: null }];
       if (item.name === '低信心') return [{ id: item.id, decision: 'review', category: null }];
       if (item.description.includes('关键词不直接决定结果')) return [{ id: item.id, decision: 'classify', category: '现代都市' }];
@@ -129,64 +118,25 @@ try {
   assert(duplicateGroups.some((group) => group.type === 'same_filename_different_content'));
   assert(duplicateGroups.some((group) => group.type === 'suspected_version'));
 
-  const noConfigReports = join(temporary, 'no-config-trials');
-  const noConfigEnvironment = { MODEL_API_BASE_URL: '', MODEL_NAME: '' };
-  await run('04-classification-trial.mjs', [scan, standards, noConfigReports, '8'], { expectedCode: 1, environment: noConfigEnvironment });
-
-  const dryRunReports = join(temporary, 'dry-run-trials'); const requestsBeforeDryRun = taxonomyProposalRequests;
-  const dryRunResult = await run('04-classification-trial.mjs', [scan, standards, dryRunReports, '8', '--dry-run']);
-  assert.equal(taxonomyProposalRequests, requestsBeforeDryRun, '预检不能发送任何模型请求');
-  assert(dryRunResult.output.includes('"mode": "dry-run"'));
-  const dryRunDirectory = await onlyDirectory(dryRunReports);
-  assert.equal(JSON.parse(await readFile(join(dryRunDirectory, 'run-state.json'), 'utf8')).status, 'proposals');
-
-  const trialReports = join(temporary, 'trials'); await run('04-classification-trial.mjs', [scan, standards, trialReports, '8']);
-  const trialDirectory = await onlyDirectory(trialReports);
-  const taxonomy = JSON.parse(await readFile(join(trialDirectory, 'taxonomy.json'), 'utf8'));
-  assert.equal(taxonomy.categories.length, 12);
-  assert.equal((await jsonLines(join(trialDirectory, 'sample.jsonl'))).length, 6);
-  assert.equal(taxonomyInvalidJsonRemaining, 0, '模型 JSON 失败后应重试');
-  assert.equal((await jsonLines(join(trialDirectory, 'proposal-checkpoint.jsonl'))).length, 3);
-  const trialSummary = JSON.parse(await readFile(join(trialDirectory, 'summary.json'), 'utf8'));
-  assert.equal(trialSummary.http_requests_total, 5, '三批提案、一次有限重试和一次汇总共五次 HTTP 请求');
-  assert.equal(trialSummary.http_requests_remaining, trialSummary.http_request_limit - 5);
-
-  const resumableReports = join(temporary, 'resumable-trials');
-  const guardedEnvironment = { ...modelEnvironment, MODEL_CONCURRENCY: '1', MODEL_MAX_ATTEMPTS: '3' };
-  fatalTrialRequestsRemaining = 1;
-  const requestsBeforeFatalTrial = taxonomyProposalRequests;
-  await run('04-classification-trial.mjs', [scan, standards, resumableReports, '8'], { expectedCode: 1, environment: guardedEnvironment });
-  assert.equal(taxonomyProposalRequests - requestsBeforeFatalTrial, 2, '403 必须立即熔断，不能重试或继续其他批次');
-  const resumableDirectory = await onlyDirectory(resumableReports);
-  assert.equal((await jsonLines(join(resumableDirectory, 'proposal-checkpoint.jsonl'))).length, 1);
-  fatalTrialRequestsRemaining = null;
-  const requestsBeforeTrialResume = taxonomyProposalRequests;
-  await run('04-classification-trial.mjs', [`--resume=${resumableDirectory}`], { environment: guardedEnvironment });
-  assert.equal(taxonomyProposalRequests - requestsBeforeTrialResume, 2, '续跑只能请求尚未完成的两个提案批次');
-  assert.equal((await jsonLines(join(resumableDirectory, 'proposal-checkpoint.jsonl'))).length, 3);
-  const resumedUsage = await jsonLines(join(resumableDirectory, 'usage.jsonl'));
-  assert.equal(resumedUsage.filter((event) => event.event === 'request_reserved').length, 5);
-
-  const unapprovedReports = join(temporary, 'unapproved-classifications');
-  await run('05-classify-character-cards.mjs', [scan, trialDirectory, unapprovedReports], { expectedCode: 1 });
-  await assert.rejects(readdir(unapprovedReports), { code: 'ENOENT' });
-
-  const approvalPath = join(trialDirectory, 'approval.json'); const approval = JSON.parse(await readFile(approvalPath, 'utf8'));
-  approval.approved = true; await writeFile(approvalPath, JSON.stringify(approval, null, 2), 'utf8');
+  const noConfigReports = join(temporary, 'no-config-classifications');
+  const noConfigEnvironment = { MODEL_API_BASE_URL: '', MODEL_API_KEY: '', CHEESE_API_KEY: '', MODEL_NAME: '' };
+  await run('05-classify-character-cards.mjs', [scan, standards, noConfigReports], { expectedCode: 1, environment: noConfigEnvironment });
+  await assert.rejects(readdir(noConfigReports), { code: 'ENOENT' });
 
   const classificationDryRunReports = join(temporary, 'classification-dry-run');
   const classificationRequestsBeforeDryRun = classificationRequests.length;
-  const classificationDryRun = await run('05-classify-character-cards.mjs', [scan, trialDirectory, classificationDryRunReports, '--dry-run']);
+  const classificationDryRun = await run('05-classify-character-cards.mjs', [scan, standards, classificationDryRunReports, '--dry-run']);
   assert.equal(classificationRequests.length, classificationRequestsBeforeDryRun, '第五阶段预检不能发送模型请求');
   assert(classificationDryRun.output.includes('"initial_request_batches": 3'));
   const classificationDryRunDirectory = await onlyDirectory(classificationDryRunReports);
   const dryRunMetadata = JSON.parse(await readFile(join(classificationDryRunDirectory, 'run.json'), 'utf8'));
   assert.equal(dryRunMetadata.batch_size, 2); assert.equal(dryRunMetadata.max_http_requests, 1300);
+  assert.equal(dryRunMetadata.standards_file, standards);
 
   const budgetedReports = join(temporary, 'budgeted-classifications');
   const oneRequestEnvironment = { ...modelEnvironment, MODEL_MAX_HTTP_REQUESTS: '1' };
   const requestsBeforeBudgetStop = classificationRequests.length;
-  await run('05-classify-character-cards.mjs', [scan, trialDirectory, budgetedReports], { expectedCode: 1, environment: oneRequestEnvironment });
+  await run('05-classify-character-cards.mjs', [scan, standards, budgetedReports], { expectedCode: 1, environment: oneRequestEnvironment });
   const budgetedDirectory = await onlyDirectory(budgetedReports);
   const budgetedUsage = await jsonLines(join(budgetedDirectory, 'usage.jsonl'));
   assert.equal(budgetedUsage.filter((event) => event.event === 'request_reserved').length, 1);
@@ -198,14 +148,15 @@ try {
   const classificationReports = join(temporary, 'classifications');
   const classificationEnvironment = { ...modelEnvironment, MODEL_BATCH_SIZE: '3' };
   const classificationRequestStart = classificationRequests.length;
-  await run('05-classify-character-cards.mjs', [scan, trialDirectory, classificationReports], { environment: classificationEnvironment });
+  await run('05-classify-character-cards.mjs', [scan, standards, classificationReports], { environment: classificationEnvironment });
   const classificationDirectory = await onlyDirectory(classificationReports);
   const firstRunClassificationRequests = classificationRequests.slice(classificationRequestStart);
   assert.equal(firstRunClassificationRequests.filter((ids) => ids.includes(hash('card-four'))).length, 1, '遗漏一项后不能重发同批已成功项');
   assert(firstRunClassificationRequests.some((ids) => ids.length === 1 && ids[0] === hash('card-five')), '遗漏项必须单独补发');
   const firstSummary = JSON.parse(await readFile(join(classificationDirectory, 'summary.json'), 'utf8'));
+  assert(classificationStandardsSeen.every((value) => value.includes('# 避雷偏好')), '每次模型分类都必须携带分类标准');
   assert.equal(firstSummary.unique_failed_or_incomplete, 1);
-  assert.equal(firstSummary.unique_completed_from_checkpoint, 4);
+  assert.equal(firstSummary.unique_completed_from_checkpoint, 5);
   assert.equal(firstSummary.http_requests_total, (await jsonLines(join(classificationDirectory, 'usage.jsonl'))).filter((event) => event.event === 'request_reserved').length);
   assert(!('confidence_threshold' in firstSummary));
   const firstCheckpoint = await jsonLines(join(classificationDirectory, 'checkpoint.jsonl'));
@@ -219,6 +170,8 @@ try {
   assert(firstClassifications.some((item) => item.category === '__排除复核__' && item.needs_review));
   assert(firstClassifications.some((item) => item.name === '低信心' && item.needs_review));
   assert(firstClassifications.some((item) => item.name === '' && item.needs_review));
+  assert(firstClassifications.some((item) => item.name === '非法分类重试' && item.category === '特殊设定' && !item.needs_review));
+  assert(firstClassifications.every((item) => !('tags' in item)), '最终分类结果不能保留易误解为多分类的原始 tags');
   assert(firstClassifications.every((item) => !('confidence' in item) && !('reason' in item)));
 
   const requestCountBeforeResume = classificationRequests.length;
@@ -227,6 +180,10 @@ try {
   const changedIndexResume = await run('05-classify-character-cards.mjs', [`--resume=${classificationDirectory}`], { expectedCode: 1, environment: classificationEnvironment });
   assert(changedIndexResume.output.includes('扫描索引内容与原批次不一致'));
   await writeFile(join(scan, 'index.jsonl'), indexText, 'utf8');
+  await writeFile(standards, `${standardsText}\n- 临时变化\n`, 'utf8');
+  const changedStandardsResume = await run('05-classify-character-cards.mjs', [`--resume=${classificationDirectory}`], { expectedCode: 1, environment: classificationEnvironment });
+  assert(changedStandardsResume.output.includes('分类标准与原批次不一致'));
+  await writeFile(standards, standardsText, 'utf8');
   const runMetadataPath = join(classificationDirectory, 'run.json');
   const runMetadata = JSON.parse(await readFile(runMetadataPath, 'utf8'));
   await writeFile(runMetadataPath, JSON.stringify({ ...runMetadata, prompt_version: 'obsolete-prompt' }, null, 2), 'utf8');
@@ -239,7 +196,7 @@ try {
   const resumedSummary = JSON.parse(await readFile(join(classificationDirectory, 'summary.json'), 'utf8'));
   assert.equal(resumedSummary.resumed, true);
   assert.equal(resumedSummary.unique_failed_or_incomplete, 0);
-  assert.equal(resumedSummary.unique_completed_from_checkpoint, 5);
+  assert.equal(resumedSummary.unique_completed_from_checkpoint, 6);
   const classifications = await jsonLines(join(classificationDirectory, 'classifications.jsonl'));
   assert.equal(classifications.length, definitions.length, '续跑后最终结果不能重复');
   assert(classifications.some((item) => item.name === '无效重试' && item.category === '同人' && !item.needs_review));
@@ -247,8 +204,8 @@ try {
   const destination = join(temporary, 'organized'); const planReports = join(temporary, 'plans');
   await run('06-organize-character-cards.mjs', [classificationDirectory, destination, planReports], { environment: {} });
   const planDirectory = await onlyDirectory(planReports); const plan = await jsonLines(join(planDirectory, 'plan.jsonl'));
-  assert.equal(plan.length, 5);
-  assert.equal(new Set(plan.map((item) => item.destination_path)).size, 5);
+  assert.equal(plan.length, 6);
+  assert.equal(new Set(plan.map((item) => item.destination_path)).size, 6);
   const organizationApprovalPath = join(planDirectory, 'approval.json');
   const organizationApproval = JSON.parse(await readFile(organizationApprovalPath, 'utf8')); organizationApproval.approved = true;
   await writeFile(organizationApprovalPath, JSON.stringify(organizationApproval, null, 2), 'utf8');
@@ -273,7 +230,7 @@ try {
   const reservedResult = await run('06-organize-character-cards.mjs', [reservedClassification, join(temporary, 'reserved-output'), join(temporary, 'reserved-plans')], { expectedCode: 1, environment: {} });
   assert(reservedResult.output.includes('无效分类目录名'));
 
-  console.log('第三至第六阶段纯模型流水线及断点续跑测试通过');
+  console.log('第三、第五、第六阶段纯模型流水线及断点续跑测试通过');
 } finally {
   await new Promise((accept) => server.close(accept));
 }

@@ -9,16 +9,20 @@
  *       （审计简表）与 summary.json（汇总）。不会修改、移动或删除输入文件。
  */
 import { createHash } from 'node:crypto';
-import { mkdir, open, readdir, readFile, stat, writeFile } from 'node:fs/promises';
+import { open, readdir, readFile, stat, writeFile } from 'node:fs/promises';
 import { basename, extname, join, relative, resolve } from 'node:path';
+import { createBatchDirectory } from './lib/run-files.mjs';
 
 const root = resolve(import.meta.dirname, '..');
 const inputDirectory = resolve(process.argv[2] ?? join(root, 'data', '角色卡', '未分类'));
 const reportsDirectory = resolve(process.argv[3] ?? join(root, 'reports', 'scans'));
-const runId = new Date().toISOString().replace(/[-:]/g, '').replace(/\.\d{3}Z$/, 'Z');
-const batchDirectory = join(reportsDirectory, runId);
 const PNG_SIGNATURE = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]);
 const V1_FIELDS = ['name', 'description', 'personality', 'scenario', 'first_mes', 'mes_example'];
+const CRC_TABLE = Uint32Array.from({ length: 256 }, (_, value) => {
+  let crc = value;
+  for (let bit = 0; bit < 8; bit += 1) crc = (crc & 1) ? (0xedb88320 ^ (crc >>> 1)) : (crc >>> 1);
+  return crc >>> 0;
+});
 
 function isObject(value) { return value !== null && typeof value === 'object' && !Array.isArray(value); }
 function has(object, key) { return Object.prototype.hasOwnProperty.call(object, key); }
@@ -39,13 +43,19 @@ async function writeAll(handle, text) {
 }
 
 function normalizedCardHash(card) {
-  const ignoredKeys = new Set(['creation_date', 'modification_date']);
+  const ignoredKeys = new Set(['creation_date', 'modification_date', 'create_date']);
   const normalize = (value) => {
     if (Array.isArray(value)) return value.map(normalize);
     if (!isObject(value)) return value;
     return Object.fromEntries(Object.keys(value).filter((key) => !ignoredKeys.has(key)).sort().map((key) => [key, normalize(value[key])]));
   };
   return createHash('sha256').update(JSON.stringify(normalize(card))).digest('hex');
+}
+
+function crc32(buffer, start, end) {
+  let crc = 0xffffffff;
+  for (let index = start; index < end; index += 1) crc = CRC_TABLE[(crc ^ buffer[index]) & 0xff] ^ (crc >>> 8);
+  return (crc ^ 0xffffffff) >>> 0;
 }
 
 function versionOf(card) {
@@ -109,8 +119,11 @@ function parsePng(buffer) {
     if (buffer.length - offset < 12) return { status: 'corrupt_png', detail: 'PNG chunk header or CRC is truncated' };
     const length = buffer.readUInt32BE(offset); offset += 4;
     if (length > buffer.length - offset - 8) return { status: 'corrupt_png', detail: 'PNG chunk length exceeds remaining file data' };
-    const type = buffer.toString('ascii', offset, offset + 4); offset += 4;
-    const data = buffer.subarray(offset, offset + length); offset += length + 4;
+    const typeOffset = offset; const type = buffer.toString('ascii', offset, offset + 4); offset += 4;
+    const data = buffer.subarray(offset, offset + length);
+    const expectedCrc = buffer.readUInt32BE(offset + length); const actualCrc = crc32(buffer, typeOffset, offset + length);
+    if (actualCrc !== expectedCrc) return { status: 'corrupt_png', detail: `PNG ${type} chunk CRC does not match` };
+    offset += length + 4;
     if (type === 'tEXt') {
       const nul = data.indexOf(0);
       if (nul > 0 && nul < data.length - 1) {
@@ -153,7 +166,8 @@ async function listFiles(directory) {
   return output;
 }
 
-await stat(inputDirectory); await mkdir(batchDirectory, { recursive: true });
+await stat(inputDirectory);
+const { runId, batchDirectory } = await createBatchDirectory(reportsDirectory);
 const indexHandle = await open(join(batchDirectory, 'index.jsonl'), 'w');
 const auditHandle = await open(join(batchDirectory, 'audit.csv'), 'w');
 const statusCounts = new Map(); const specVersionCounts = new Map(); let filesScanned = 0;

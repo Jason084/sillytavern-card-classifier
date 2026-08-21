@@ -127,36 +127,65 @@ node .\src\03-detect-duplicates.mjs
 
 `分类标准.md` 记录自然语言形式的个人偏好，例如不接受的内容和明确可以接受的内容。模型从角色卡的整体语义理解这些偏好；程序不把其中的词语当作匹配规则。
 
-模型使用通用 OpenAI-compatible Chat Completions 接口：
+第四、第五阶段已经内置起司 OpenAI-compatible Chat Completions 入口和模型。`--dry-run` 不需要密钥；实际调用前只需在当前 PowerShell 进程中提供密钥，不要把密钥写入仓库文件：
 
 ```powershell
-$env:MODEL_API_BASE_URL = '服务地址，例如 https://example.com/v1'
-$env:MODEL_API_KEY = '密钥；无鉴权的本地服务可省略'
-$env:MODEL_NAME = '便宜小模型的实际名称'
-$env:MODEL_BATCH_SIZE = '10'
-$env:MODEL_CONCURRENCY = '2'
-node .\src\04-classification-trial.mjs
+$env:CHEESE_API_KEY = '你的起司 API 密钥'
+node .\src\04-classification-trial.mjs --dry-run
 ```
 
-可依次传入扫描批次目录（或 `index.jsonl`）、偏好文件、报告根目录和样本数。结果写入 `reports/classification-trials/<UTC 批次时间>/`：
+第四阶段默认使用 `https://cheeseapi.top/v1`、`gemini-3-pro-preview`、每批 20 张、最多 100 次 HTTP 调用和 4096 输出 token。第五阶段默认使用 `https://cheeseapi.cn/v1`、`gemini-3.6-flash`、每批 30 张、最多 1300 次 HTTP 调用和 4096 输出 token。两阶段硬上限合计 1400 次，某阶段未使用的额度不会自动转给另一阶段。
+
+需要临时替换服务或参数时，仍可在启动对应脚本前设置通用覆盖变量：
+
+```powershell
+$env:MODEL_API_BASE_URL = '其他 OpenAI-compatible 服务地址'
+$env:MODEL_API_KEY = '兼容的旧密钥变量'
+$env:MODEL_NAME = '其他模型名称'
+$env:MODEL_BATCH_SIZE = '20'
+$env:MODEL_CONCURRENCY = '2'              # 上限为 10
+$env:MODEL_MAX_ATTEMPTS = '2'             # 单次逻辑调用最多两次 HTTP 尝试
+$env:MODEL_MAX_OUTPUT_TOKENS = '4096'
+$env:MODEL_MAX_HTTP_REQUESTS = '100'
+```
+
+`--dry-run` 只抽样并打印批次数、并发、最大 HTTP 请求数和累计输入字节上限，不调用模型。确认预检输出后，使用其中的 `run_command` 从该批次开始：
+
+```powershell
+node .\src\04-classification-trial.mjs --resume=".\reports\classification-trials\<批次时间>"
+```
+
+默认安全机制包括：100 次累计 HTTP 请求硬上限、累计输入字节硬上限、三个失败批次后熔断、认证或额度类 `400/401/402/403` 错误立即停止，以及最低 80% 样本覆盖率。每次调用在发送前写入 `usage.jsonl`，续跑不会重置额度。可分别通过 `MODEL_MAX_HTTP_REQUESTS`、`MODEL_MAX_INPUT_BYTES`、`MODEL_MAX_BATCH_FAILURES` 和 `MODEL_MIN_SAMPLE_COVERAGE` 调整；提高第四或第五阶段额度时，应确保两个阶段的上限总和不超过实际购买次数。失败批次不会在普通续跑中自动重试；人工确认原因已解决后，显式添加 `--retry-errors`。
+
+可依次传入扫描批次目录（或 `index.jsonl`）、偏好文件、报告根目录和样本数。每完成一个批次就立即写检查点，结果位于 `reports/classification-trials/<UTC 批次时间>/`：
 
 - `sample.jsonl`：发送给模型的去重样本及最小化字段，每卡约 4,000 字符以内。
+- `proposal-checkpoint.jsonl`：逐批写入的成功或失败检查点；中断续跑不会重复成功批次。
+- `usage.jsonl`：每次 HTTP 尝试在发送前记录预留事件，完成后记录状态、输入/输出字节及端点返回的 token usage；不包含密钥、授权头或原始提示词。
 - `proposals.jsonl`：每个样本批次提出的类别候选。
 - `taxonomy.json`：汇总后的 12–20 个主分类及各自的纳入、排除边界。
 - `review.md`：便于人工阅读的分类体系。
 - `approval.json`：默认 `approved: false`。检查无误后改为 `true`，第五阶段才会接受该 taxonomy；批准后若修改 `taxonomy.json`，哈希校验会拒绝继续。
+
+第四阶段不再把失败批次递归拆成单条请求。非 JSON 响应只做有限重试，且输出受 `MODEL_MAX_OUTPUT_TOKENS` 限制。不要把 API 密钥写入仓库文件；只通过当前进程环境变量提供。
 
 ### 第五阶段：纯模型全量分类建议
 
 第五阶段必须使用第四阶段中已经人工批准且哈希一致的 taxonomy。每个唯一角色卡内容由便宜小模型判断一次，同卡不同封面或完全重复文件复用同一个模型结果；关键词不会直接产生分类、避雷或允许结论。
 
 - 模型输入仅包含名称、作者、标签、描述、性格、场景、作者备注和首条消息等裁剪后的必要字段。
-- 保留模型版本、提示词版本、分类理由和置信度，保证结果可复核。
-- 模型判定为避雷、其他、不确定、低于置信度阈值，或响应无效的记录进入人工复核，不参与第六阶段整理。
+- 保留模型版本、提示词版本和模型决定，保证结果可复核；为减少输出和截断风险，不要求模型返回置信度或理由。
+- 模型判定为避雷、不确定、无法归类或响应无效的记录进入人工复核，不参与第六阶段整理。
 - 完全没有可读语义字段的卡片直接进入人工复核。
 - 后续索引不保存完整原始角色卡 JSON，只保留路径、哈希、必要分类字段和复核信息。
 
-使用最新的已批准 taxonomy：
+先预检最新的已批准 taxonomy 和调用量，不发送模型请求：
+
+```powershell
+node .\src\05-classify-character-cards.mjs --dry-run
+```
+
+预检会建立可续跑批次，打印唯一卡数量、30 张批量对应的首轮调用数、剩余额度和 `run_command`。确认后运行输出中的续跑命令。也可以不预检，直接使用最新的已批准 taxonomy：
 
 ```powershell
 node .\src\05-classify-character-cards.mjs
@@ -171,7 +200,7 @@ node .\src\05-classify-character-cards.mjs `
   .\reports\classifications
 ```
 
-脚本使用与第四阶段相同的 `MODEL_*` 配置；`MODEL_CONFIDENCE_THRESHOLD` 默认为 `0.8`。运行分类命令本身即表示允许向所配置的模型服务发送最小化字段，不再提供纯关键词模式或 `--use-model` 开关。
+脚本默认使用第五阶段奶酪入口，也接受相同的 `MODEL_*` 覆盖配置。模型只返回 `id`、`decision` 和 `category`，不返回 `confidence` 或 `reason`；`exclude` 和 `review` 会进入人工复核。运行非预检命令本身即表示允许向所配置的模型服务发送最小化字段，不再提供纯关键词模式或 `--use-model` 开关。
 
 #### 第五阶段断点续跑
 
@@ -181,11 +210,11 @@ node .\src\05-classify-character-cards.mjs `
 node .\src\05-classify-character-cards.mjs --resume=".\reports\classifications\<批次时间>"
 ```
 
-续跑会校验模型名称、扫描索引和 taxonomy 哈希，只请求检查点中尚未成功的内容。完成后重新生成无重复的 `classifications.jsonl`、`review.csv` 和汇总；历史成功调用不会重复计费。
+续跑会校验 API 地址、模型名称、批量、重试和输出配置、提示词版本、扫描索引 SHA-256 与 taxonomy 哈希，只请求检查点中尚未成功的内容，并从 `usage.jsonl` 中已经预留的调用数继续累计。响应只遗漏少量卡时仅补发遗漏项；只有 413、批次整体拒绝或持续无效结构才递归拆批。完成后重新生成无重复的 `classifications.jsonl`、`review.csv` 和汇总；历史成功调用不会重复计费。
 
 ### 第六阶段：人工确认后的整理
 
-生成仅预览的复制或移动计划；经人工确认后才执行。所有操作须保存来源路径、目标路径、哈希、执行时间和结果，避免覆盖同名文件。同名但哈希不同的文件应采用版本后缀、短哈希或其他不会冲突的名称分别保存。
+生成仅预览的复制或移动计划；经人工确认后才执行。所有操作须保存来源路径、目标路径、哈希、执行时间和结果，避免覆盖同名文件。同名但哈希不同的文件应采用版本后缀、短哈希或其他不会冲突的名称分别保存。生成计划前会拒绝 Windows 保留目录名，以及清洗后落入同一目录的不同分类名。
 
 默认生成复制预览，不执行文件操作：
 
@@ -199,7 +228,7 @@ node .\src\06-organize-character-cards.mjs
 node .\src\06-organize-character-cards.mjs --execute .\reports\organization-plans\<批次时间>
 ```
 
-执行时会核对批准文件、计划文件和每个来源文件的 SHA-256；目标已存在时拒绝覆盖。移动采用“复制、校验、删除来源”的顺序，并为每次执行单独保存 JSONL、CSV 和汇总日志。
+执行时会核对批准文件、计划文件和每个来源文件的 SHA-256；目标已存在时拒绝覆盖。移动采用“复制、校验、删除来源”的顺序，并为每次执行单独保存 JSONL、CSV 和汇总日志。第四至第六阶段的新批次及执行日志使用毫秒时间戳和随机后缀，并通过排他创建避免同一时刻启动时覆盖或混写。
 
 ## 格式兼容基线
 

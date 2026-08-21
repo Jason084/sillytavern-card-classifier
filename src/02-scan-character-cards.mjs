@@ -5,7 +5,7 @@
  * 输入：命令行第一个可选参数为待扫描目录，默认 data/角色卡/未分类；
  *       仅递归读取其中的 .png 与 .json 文件。
  * 输出：命令行第二个可选参数为报告根目录，默认 reports/scans；每次扫描新建
- *       一个时间戳批次，包含 index.jsonl（完整索引及原始 JSON）、audit.csv
+ *       一个时间戳批次，包含 index.jsonl（统一索引）、audit.csv
  *       （审计简表）与 summary.json（汇总）。不会修改、移动或删除输入文件。
  */
 import { createHash } from 'node:crypto';
@@ -29,6 +29,25 @@ function array(value) {
   return Array.isArray(value) ? value.map(String) : [];
 }
 
+async function writeAll(handle, text) {
+  const bytes = Buffer.from(text); let offset = 0;
+  while (offset < bytes.length) {
+    const { bytesWritten } = await handle.write(bytes, offset, bytes.length - offset, null);
+    if (!bytesWritten) throw new Error('report write returned zero bytes');
+    offset += bytesWritten;
+  }
+}
+
+function normalizedCardHash(card) {
+  const ignoredKeys = new Set(['creation_date', 'modification_date']);
+  const normalize = (value) => {
+    if (Array.isArray(value)) return value.map(normalize);
+    if (!isObject(value)) return value;
+    return Object.fromEntries(Object.keys(value).filter((key) => !ignoredKeys.has(key)).sort().map((key) => [key, normalize(value[key])]));
+  };
+  return createHash('sha256').update(JSON.stringify(normalize(card))).digest('hex');
+}
+
 function versionOf(card) {
   if (!isObject(card)) return null;
   if (card.spec === 'chara_card_v2') return 2;
@@ -37,7 +56,7 @@ function versionOf(card) {
 }
 
 // This mapping intentionally mirrors SillyInnkeeper's CardDataExtractor.
-function extractCard(card, version, rawCardJson) {
+function extractCard(card, version) {
   const data = version === 1 ? card : card.data;
   if (!isObject(data)) throw new Error('supported card has no object-valued data field');
   let creatorNotes = version === 1 ? string(data.creator_notes ?? data.creatorcomment) : string(data.creator_notes);
@@ -59,7 +78,6 @@ function extractCard(card, version, rawCardJson) {
     nickname: version === 3 ? string(data.nickname) : null,
     character_book: version === 1 ? null : (data.character_book ?? null),
     extensions: isObject(data.extensions) ? data.extensions : null,
-    raw_card_json: rawCardJson,
   };
 }
 
@@ -81,7 +99,7 @@ function decodeMetadata(text) {
   // Buffer.from is permissive, so reject non-base64 input before JSON decoding.
   if (!/^[A-Za-z0-9+/]*={0,2}$/.test(text) || text.length % 4 === 1) throw new Error('invalid Base64');
   const raw = new TextDecoder('utf-8', { fatal: true }).decode(bytes);
-  return { raw, card: JSON.parse(raw) };
+  return JSON.parse(raw);
 }
 
 function parsePng(buffer) {
@@ -107,9 +125,9 @@ function parsePng(buffer) {
   let decodedAny = false;
   for (const keyword of ['ccv3', 'chara']) for (const chunk of chunks.filter((item) => item.keyword === keyword)) {
     try {
-      const { raw, card } = decodeMetadata(chunk.text); decodedAny = true;
+      const card = decodeMetadata(chunk.text); decodedAny = true;
       const version = versionOf(card);
-      if (version) return { status: 'ok', raw, card, version, metadata_chunk: keyword };
+      if (version) return { status: 'ok', card, version, metadata_chunk: keyword };
     } catch { /* Try the next metadata chunk, as the reference parser does. */ }
   }
   return decodedAny
@@ -120,7 +138,7 @@ function parsePng(buffer) {
 function parseJson(buffer) {
   try {
     const raw = new TextDecoder('utf-8', { fatal: true }).decode(buffer); const card = JSON.parse(raw); const version = versionOf(card);
-    return version ? { status: 'ok', raw, card, version, metadata_chunk: null }
+    return version ? { status: 'ok', card, version, metadata_chunk: null }
       : { status: 'unsupported_card_spec', detail: 'JSON is readable but does not match supported V1, V2, or V3 card structures' };
   } catch (error) { return { status: 'json_decode_failed', detail: error.message }; }
 }
@@ -139,17 +157,17 @@ await stat(inputDirectory); await mkdir(batchDirectory, { recursive: true });
 const indexHandle = await open(join(batchDirectory, 'index.jsonl'), 'w');
 const auditHandle = await open(join(batchDirectory, 'audit.csv'), 'w');
 const statusCounts = new Map(); const specVersionCounts = new Map(); let filesScanned = 0;
-await auditHandle.write('status,spec_version,relative_path,detail\n');
+await writeAll(auditHandle, 'status,spec_version,file_sha256,card_sha256,relative_path,detail\n');
 for (const path of await listFiles(inputDirectory)) {
   const file = await stat(path); const bytes = await readFile(path);
   let parsed = extname(path).toLowerCase() === '.png' ? parsePng(bytes) : parseJson(bytes);
-  const record = { relative_path: relative(inputDirectory, path), file_name: basename(path), extension: extname(path).toLowerCase(), size_bytes: file.size, created_utc: file.birthtime.toISOString(), modified_utc: file.mtime.toISOString(), sha256: createHash('sha256').update(bytes).digest('hex'), status: parsed.status === 'ok' ? 'valid' : parsed.status, detail: parsed.detail ?? null, metadata_chunk: parsed.metadata_chunk ?? null };
+  const record = { relative_path: relative(inputDirectory, path), file_name: basename(path), extension: extname(path).toLowerCase(), size_bytes: file.size, created_utc: file.birthtime.toISOString(), modified_utc: file.mtime.toISOString(), sha256: createHash('sha256').update(bytes).digest('hex'), card_sha256: parsed.status === 'ok' ? normalizedCardHash(parsed.card) : null, status: parsed.status === 'ok' ? 'valid' : parsed.status, detail: parsed.detail ?? null, metadata_chunk: parsed.metadata_chunk ?? null };
   if (parsed.status === 'ok') {
-    try { record.card = extractCard(parsed.card, parsed.version, parsed.raw); record.warnings = warningsFor(parsed.card, parsed.version); if (record.warnings.length) record.status = 'valid_with_warnings'; }
+    try { record.card = extractCard(parsed.card, parsed.version); record.warnings = warningsFor(parsed.card, parsed.version); if (record.warnings.length) record.status = 'valid_with_warnings'; }
     catch (error) { record.status = 'unsupported_card_spec'; record.detail = error.message; }
   }
-  await indexHandle.write(`${JSON.stringify(record)}\n`);
-  await auditHandle.write([record.status, record.card?.spec_version ?? '', record.relative_path, record.detail ?? ''].map((value) => `"${String(value).replaceAll('"', '""')}"`).join(',') + '\n');
+  await writeAll(indexHandle, `${JSON.stringify(record)}\n`);
+  await writeAll(auditHandle, [record.status, record.card?.spec_version ?? '', record.sha256, record.card_sha256 ?? '', record.relative_path, record.detail ?? ''].map((value) => `"${String(value).replaceAll('"', '""')}"`).join(',') + '\n');
   statusCounts.set(record.status, (statusCounts.get(record.status) ?? 0) + 1);
   if (record.card) specVersionCounts.set(record.card.spec_version, (specVersionCounts.get(record.card.spec_version) ?? 0) + 1);
   filesScanned += 1;

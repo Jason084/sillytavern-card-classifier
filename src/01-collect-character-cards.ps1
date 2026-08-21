@@ -29,6 +29,10 @@ $allowedExtensions = @('.png', '.json')
 $runId = Get-Date -Format 'yyyyMMdd-HHmmss'
 $records = [System.Collections.Generic.List[object]]::new()
 
+function Get-FileSha256([string]$Path) {
+    return (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash.ToLowerInvariant()
+}
+
 if (-not (Test-Path -LiteralPath $Destination -PathType Container)) {
     New-Item -ItemType Directory -Path $Destination -Force | Out-Null
 }
@@ -49,23 +53,70 @@ foreach ($sourceDirectory in $sourceDirectories) {
         $sourceFile = $_
         $destinationFile = Join-Path $Destination $sourceFile.Name
 
+        $status = ''
+        $detail = ''
+
         if (Test-Path -LiteralPath $destinationFile) {
-            $records.Add([pscustomobject]@{
-                Timestamp = Get-Date -Format 's'; Status = 'skipped_same_name'; Source = $sourceFile.FullName
-                Destination = $destinationFile; Detail = '目标目录已有同名文件'
-            })
-            return
+            try {
+                $sourceHash = Get-FileSha256 $sourceFile.FullName
+                $destinationHash = Get-FileSha256 $destinationFile
+
+                if ($sourceHash -eq $destinationHash) {
+                    $records.Add([pscustomobject]@{
+                        Timestamp = Get-Date -Format 's'; Status = 'skipped_identical'; Source = $sourceFile.FullName
+                        Destination = $destinationFile; Detail = '目标目录已有内容完全相同的文件'
+                    })
+                    return
+                }
+
+                $stem = [System.IO.Path]::GetFileNameWithoutExtension($sourceFile.Name)
+                $extension = $sourceFile.Extension
+                $shortHash = $sourceHash.Substring(0, 12)
+                $versionNumber = 1
+
+                while ($true) {
+                    $suffix = if ($versionNumber -eq 1) { "__$shortHash" } else { "__$shortHash-$versionNumber" }
+                    $versionedName = "$stem$suffix$extension"
+                    $destinationFile = Join-Path $Destination $versionedName
+
+                    if (-not (Test-Path -LiteralPath $destinationFile)) {
+                        break
+                    }
+
+                    if ((Get-FileSha256 $destinationFile) -eq $sourceHash) {
+                        $records.Add([pscustomobject]@{
+                            Timestamp = Get-Date -Format 's'; Status = 'skipped_identical'; Source = $sourceFile.FullName
+                            Destination = $destinationFile; Detail = '目标目录已有内容完全相同的版本文件'
+                        })
+                        return
+                    }
+
+                    $versionNumber += 1
+                }
+
+                $status = 'copied_version'
+                $detail = "同名但内容不同，已按不同版本保存为 $versionedName"
+            }
+            catch {
+                $records.Add([pscustomobject]@{
+                    Timestamp = Get-Date -Format 's'; Status = 'failed'; Source = $sourceFile.FullName
+                    Destination = $destinationFile; Detail = "比较同名文件失败：$($_.Exception.Message)"
+                })
+                Write-Warning "比较同名文件失败：$($sourceFile.FullName) - $($_.Exception.Message)"
+                return
+            }
         }
 
         try {
             if ($PSCmdlet.ShouldProcess($destinationFile, "复制 $($sourceFile.FullName)")) {
                 Copy-Item -LiteralPath $sourceFile.FullName -Destination $destinationFile
-                $status = 'copied'
-                $detail = ''
+                if (-not $status) {
+                    $status = 'copied'
+                }
             }
             else {
-                $status = 'would_copy'
-                $detail = 'WhatIf 模式'
+                $status = if ($status -eq 'copied_version') { 'would_copy_version' } else { 'would_copy' }
+                $detail = if ($detail) { "$detail；WhatIf 模式" } else { 'WhatIf 模式' }
             }
         }
         catch {

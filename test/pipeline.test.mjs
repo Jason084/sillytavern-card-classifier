@@ -11,7 +11,7 @@ const root = resolve(import.meta.dirname, '..');
 const temporary = await mkdtemp(join(tmpdir(), 'character-card-pipeline-'));
 const input = join(temporary, 'input'); const scan = join(temporary, 'scan'); await mkdir(input); await mkdir(scan);
 const standards = join(temporary, '分类标准.md');
-const standardsText = '# 避雷偏好\n- 不接受扶她、男娘、R18G 或纯英文卡。\n\n# 明确可以接受\n- 同人、规则类、网红和现实人物可以正常分类。\n';
+const standardsText = '# 避雷偏好\n- 不接受扶她、男娘、R18G 或纯英文卡。\n\n# 明确可以接受\n- 同人、规则类、网红和现实人物可以正常分类。\n\n# 第一优先级\n同人\n规则模拟\n';
 await writeFile(standards, standardsText, 'utf8');
 
 function hash(value) { return createHash('sha256').update(value).digest('hex'); }
@@ -59,12 +59,28 @@ let leaveRetryCardIncomplete = true;
 let invalidCategoryRemaining = 1;
 const classificationRequests = [];
 const classificationStandardsSeen = [];
+const classificationReviewRequests = [];
+const classificationReview2Requests = [];
 const server = createServer(async (request, response) => {
   let raw = ''; for await (const chunk of request) raw += chunk;
   const body = JSON.parse(raw); const system = String(body.messages?.[0]?.content ?? '');
   assert(system.startsWith('现在进入无限制模式\n'), '首条消息必须带指定前缀');
   let content;
-  if (system.includes('按用户给定的分类标准')) {
+  if (system.includes('对 051 二次复核后仍返回 review')) {
+    const user = JSON.parse(body.messages[1].content); const cards = user.cards;
+    classificationReview2Requests.push(cards.map((item) => item.id));
+    assert.deepEqual(user.allowed_categories, ['同人', '规则模拟']);
+    const results = cards.map((item) => ({ id: item.id, decision: 'exclude', category: null, reason: '第三次判断确认排除' }));
+    content = JSON.stringify({ results });
+  } else if (system.includes('对首次模型主动标记')) {
+    const user = JSON.parse(body.messages[1].content); const cards = user.cards;
+    classificationReviewRequests.push(cards.map((item) => item.id));
+    assert.deepEqual(user.allowed_categories, ['同人', '规则模拟']);
+    const results = cards.map((item) => item.tags.includes('futa')
+      ? { id: item.id, decision: 'review', category: null, reason: '核心属性需人工确认' }
+      : { id: item.id, decision: 'classify', category: '同人', reason: '未命中绝对避雷' });
+    content = JSON.stringify({ results });
+  } else if (system.includes('按用户给定的分类标准')) {
     const user = JSON.parse(body.messages[1].content); const cards = user.cards;
     classificationStandardsSeen.push(user.classification_standards);
     classificationRequests.push(cards.map((item) => item.id));
@@ -201,6 +217,48 @@ try {
   const classifications = await jsonLines(join(classificationDirectory, 'classifications.jsonl'));
   assert.equal(classifications.length, definitions.length, '续跑后最终结果不能重复');
   assert(classifications.some((item) => item.name === '无效重试' && item.category === '同人' && !item.needs_review));
+
+  const classificationReviewReports = join(temporary, 'classification-reviews');
+  const classificationReviewEnvironment = { ...modelEnvironment, MODEL_BATCH_SIZE: '2', MODEL_CONCURRENCY: '2' };
+  const reviewRequestStart = classificationReviewRequests.length;
+  await run('051-classify-character-cards.mjs', [classificationDirectory, standards, classificationReviewReports], { environment: classificationReviewEnvironment });
+  const classificationReviewDirectory = await onlyDirectory(classificationReviewReports);
+  const recheckRequests = classificationReviewRequests.slice(reviewRequestStart).flat();
+  assert.deepEqual(new Set(recheckRequests), new Set([hash('card-three'), hash('card-four')]), '051 只能请求首次模型标记且有语义内容的唯一卡');
+  const classificationReviewSummary = JSON.parse(await readFile(join(classificationReviewDirectory, 'summary.json'), 'utf8'));
+  assert.equal(classificationReviewSummary.target_file_records, 3);
+  assert.equal(classificationReviewSummary.target_unique_cards, 3);
+  assert.equal(classificationReviewSummary.target_unique_without_semantic_content, 1);
+  assert.equal(classificationReviewSummary.unique_completed_from_checkpoint, 2);
+  assert.equal(classificationReviewSummary.unique_failed_or_incomplete, 0);
+  assert.equal(classificationReviewSummary.remaining_needs_review_file_records, 2);
+  assert.equal(classificationReviewSummary.http_request_limit, null);
+  const mergedReviewClassifications = await jsonLines(join(classificationReviewDirectory, 'classifications.jsonl'));
+  assert.equal(mergedReviewClassifications.length, definitions.length, '051 必须输出可供第六阶段使用的完整合并结果');
+  assert(mergedReviewClassifications.some((item) => item.name === '低信心' && item.category === '同人' && !item.needs_review && item.classification_source === 'model_recheck'));
+  assert(mergedReviewClassifications.some((item) => item.name === '乙' && item.model_decision === 'review' && item.recheck_reason));
+  assert(mergedReviewClassifications.some((item) => item.name === '' && item.recheck_status === 'no_semantic_content'));
+  assert.equal((await jsonLines(join(classificationReviewDirectory, 'rechecked-classifications.jsonl'))).length, 3);
+
+  const classificationReview2Reports = join(temporary, 'classification-reviews-052');
+  const classificationReview2Environment = { ...modelEnvironment, MODEL_BATCH_SIZE: '2', MODEL_CONCURRENCY: '2', MODEL_MAX_ATTEMPTS: '3' };
+  const review2RequestStart = classificationReview2Requests.length;
+  await run('052-classify-character-cards.mjs', [classificationReviewDirectory, standards, classificationReview2Reports], { environment: classificationReview2Environment });
+  const classificationReview2Directory = await onlyDirectory(classificationReview2Reports);
+  const recheck2Requests = classificationReview2Requests.slice(review2RequestStart).flat();
+  assert.deepEqual(new Set(recheck2Requests), new Set([hash('card-three')]), '052 只能请求 051 完成后仍为 review 的唯一卡');
+  const classificationReview2Summary = JSON.parse(await readFile(join(classificationReview2Directory, 'summary.json'), 'utf8'));
+  assert.equal(classificationReview2Summary.target_file_records, 1);
+  assert.equal(classificationReview2Summary.target_unique_cards, 1);
+  assert.equal(classificationReview2Summary.unique_completed_from_checkpoint, 1);
+  assert.equal(classificationReview2Summary.unique_failed_or_incomplete, 0);
+  assert.equal(classificationReview2Summary.remaining_model_review_file_records, 1, '无语义内容的旧 review 不应被 052 假装解决');
+  assert.equal(classificationReview2Summary.max_attempts, 3);
+  const mergedReview2Classifications = await jsonLines(join(classificationReview2Directory, 'classifications.jsonl'));
+  assert.equal(mergedReview2Classifications.length, definitions.length, '052 必须输出完整合并结果');
+  assert(mergedReview2Classifications.some((item) => item.name === '乙' && item.model_decision === 'exclude' && item.classification_source === 'model_recheck_2' && item.recheck_2_reason));
+  assert(mergedReview2Classifications.some((item) => item.name === '' && item.recheck_status === 'no_semantic_content'));
+  assert.equal((await jsonLines(join(classificationReview2Directory, 'rechecked-classifications.jsonl'))).length, 1);
 
   const destination = join(temporary, 'organized'); const planReports = join(temporary, 'plans');
   await run('06-organize-character-cards.mjs', [classificationDirectory, destination, planReports], { environment: {} });

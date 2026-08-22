@@ -110,26 +110,26 @@ test('请求完成日志写入失败时停止，预留记录仍先于付费请�
   assert.equal(requests, 1); assert.equal(persisted.length, 1); assert.equal(persisted[0].event, 'request_reserved');
 });
 
-test('阶段默认模型配置可由通用环境变量覆盖，密钥优先读取 CHEESE_API_KEY', () => {
+test('阶段默认模型配置可由通用环境变量覆盖，密钥优先读取 MODEL_API_KEY', () => {
   const names = ['MODEL_API_BASE_URL', 'MODEL_NAME', 'MODEL_BATCH_SIZE', 'MODEL_MAX_OUTPUT_TOKENS', 'MODEL_API_KEY', 'CHEESE_API_KEY'];
   const saved = Object.fromEntries(names.map((name) => [name, process.env[name]]));
   try {
     for (const name of names) delete process.env[name];
-    process.env.CHEESE_API_KEY = 'cheese-secret';
+    process.env.MODEL_API_KEY = 'model-secret';
     const defaults = modelSettingsFromEnv({
       baseUrl: 'https://cheese.example/v1', model: 'default-model', batchSize: 30,
       maxOutputTokens: 4_096, requireApiKeyForDefault: true,
     });
     assert.equal(defaults.url, 'https://cheese.example/v1/chat/completions');
     assert.equal(defaults.model, 'default-model'); assert.equal(defaults.batchSize, 30);
-    assert.equal(defaults.maxOutputTokens, 4_096); assert.equal(defaults.apiKey, 'cheese-secret');
+    assert.equal(defaults.maxOutputTokens, 4_096); assert.equal(defaults.apiKey, 'model-secret');
 
     process.env.MODEL_API_BASE_URL = 'http://127.0.0.1:1234/v1'; process.env.MODEL_NAME = 'override-model';
-    process.env.MODEL_BATCH_SIZE = '7'; process.env.MODEL_MAX_OUTPUT_TOKENS = '999'; process.env.MODEL_API_KEY = 'legacy-secret';
+    process.env.MODEL_BATCH_SIZE = '7'; process.env.MODEL_MAX_OUTPUT_TOKENS = '999'; process.env.CHEESE_API_KEY = 'legacy-secret';
     const overridden = modelSettingsFromEnv({ baseUrl: 'https://unused.example/v1', model: 'unused', batchSize: 20 });
     assert.equal(overridden.baseUrl, 'http://127.0.0.1:1234/v1'); assert.equal(overridden.model, 'override-model');
     assert.equal(overridden.batchSize, 7); assert.equal(overridden.maxOutputTokens, 999);
-    assert.equal(overridden.apiKey, 'cheese-secret');
+    assert.equal(overridden.apiKey, 'model-secret');
   } finally {
     for (const name of names) {
       if (saved[name] === undefined) delete process.env[name]; else process.env[name] = saved[name];

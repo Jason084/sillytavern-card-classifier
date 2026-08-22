@@ -82,10 +82,10 @@ export function modelSettingsFromEnv(defaults = {}) {
   if (!baseUrl || !model) throw new Error('必须设置 MODEL_API_BASE_URL 和 MODEL_NAME，或由当前阶段提供默认值');
   const confidenceThreshold = Number.parseFloat(process.env.MODEL_CONFIDENCE_THRESHOLD ?? String(DEFAULT_CONFIDENCE_THRESHOLD));
   if (!(confidenceThreshold >= 0 && confidenceThreshold <= 1)) throw new Error('MODEL_CONFIDENCE_THRESHOLD 必须介于 0 与 1 之间');
-  const apiKey = configuredText('CHEESE_API_KEY') || configuredText('MODEL_API_KEY') || String(defaults.apiKey ?? '');
+  const apiKey = configuredText('MODEL_API_KEY') || configuredText('CHEESE_API_KEY') || String(defaults.apiKey ?? '');
   const usingDefaultBaseUrl = !configuredBaseUrl;
   if (defaults.requireApiKeyForDefault && usingDefaultBaseUrl && !apiKey) {
-    throw new Error('使用当前阶段默认起司 API 时必须设置 CHEESE_API_KEY（兼容 MODEL_API_KEY）');
+    throw new Error('使用当前阶段默认 API 时必须设置 MODEL_API_KEY');
   }
   return {
     baseUrl,

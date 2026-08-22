@@ -47,6 +47,8 @@ D:\\网盘\\百度网盘\\闲鱼三鱼
 │  ├─ 02-scan-character-cards.mjs
 │  ├─ 03-detect-duplicates.mjs
 │  ├─ 05-classify-character-cards.mjs
+│  ├─ 051-classify-character-cards.mjs
+│  ├─ 052-classify-character-cards.mjs
 │  └─ 06-organize-character-cards.mjs
 ├─ SillyInnkeeper-main/   # 仅作格式兼容与实现参考的第三方项目
 └─ readme.md
@@ -180,6 +182,53 @@ node .\src\05-classify-character-cards.mjs --resume=".\reports\classifications\<
 ```
 
 续跑会校验 API 地址、模型名称、批量、重试和输出配置、提示词版本、扫描索引 SHA-256 与分类标准 SHA-256，只请求检查点中尚未成功的内容，并从 `usage.jsonl` 中已经预留的调用数继续累计。响应只遗漏少量卡时仅补发遗漏项；只有 413、批次整体拒绝或持续无效结构才递归拆批。完成后重新生成无重复的 `classifications.jsonl`、`review.csv` 和汇总；历史成功调用不会重复计费。
+
+### 第五阶段 051：模型二次复核
+
+`051-classify-character-cards.mjs` 复制并沿用 05 的请求、检查点和安全续跑机制，只复核完整第五阶段结果中由首次模型主动标记为 `needs_review=true` 的项目。相同角色卡内容只请求一次；模型会同时看到首次决定，但必须独立重判。明确未命中绝对避雷的项目可以释放为正式分类，仍明确命中避雷的项目保留 `exclude`，标准规定应人工判断或确实信息不足的项目保留 `review`。
+
+051 默认使用同一接口和 `v4 flash`，每批 10 张、并发 5，不设置实际 HTTP 请求上限。二次分类只能从当前 `分类标准.md` 的第一、第二优先级中选择，不允许创建新分类名。原第五阶段批次不会改写；输出写入 `reports/classification-reviews/<批次>/`，其中：
+
+- `checkpoint.jsonl`：每个唯一待复核内容的二次决定和简短依据。
+- `rechecked-classifications.jsonl`、`review.csv`：仅含首次待复核的 4,045 条文件记录及前后决定。
+- `classifications.jsonl`：合并未复核项目与二次决定后的全部文件结果，可直接作为第六阶段输入。
+- `usage.jsonl`、`model-errors.jsonl`、`index-errors.jsonl`、`summary.json`：调用、错误、完整性与前后决定汇总。
+
+先预检，不发送模型请求：
+
+```powershell
+node .\src\051-classify-character-cards.mjs `
+  .\reports\classifications\<第五阶段批次> `
+  --dry-run
+```
+
+预检会创建独立批次并输出续跑命令。真实调用时只在当前进程提供密钥：
+
+```powershell
+$env:MODEL_API_KEY = '你的 Sub Key'
+node .\src\051-classify-character-cards.mjs --resume=".\reports\classification-reviews\<批次>"
+Remove-Item Env:MODEL_API_KEY
+```
+
+中断后继续使用同一个 `--resume` 命令；已经写入检查点的内容不会再次请求。只有 `summary.json` 中 `unique_failed_or_incomplete` 为 0，且剩余 `needs_review` 已人工确认后，才应进入第六阶段。
+
+### 第五阶段 052：再次复核剩余 review
+
+`052-classify-character-cards.mjs` 复制 051 的处理方式，但只选择 051 已完成二次复核后仍明确返回 `review` 的项目；已经分类和已经确认排除的项目都不会再次请求。默认使用 `v4 flash`、每批 2 张、并发 2、最多重试 3 次，不设置实际 HTTP 请求上限，并继续把新分类限制在当前标准列出的分类名中。
+
+预检和运行方式与 051 相同，输出位于 `reports/classification-reviews-052/<批次>/`：
+
+```powershell
+node .\src\052-classify-character-cards.mjs `
+  .\reports\classification-reviews\<051 批次> `
+  --dry-run
+
+$env:MODEL_API_KEY = '你的 Sub Key'
+node .\src\052-classify-character-cards.mjs --resume=".\reports\classification-reviews-052\<052 批次>"
+Remove-Item Env:MODEL_API_KEY
+```
+
+052 会保留首次、051 和 052 的决定及简短依据，并生成可供第六阶段读取的完整合并 `classifications.jsonl`。
 
 ### 第六阶段：人工确认后的整理
 

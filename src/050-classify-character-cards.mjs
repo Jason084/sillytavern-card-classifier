@@ -12,6 +12,7 @@ import {
   requestModelJson, runWorkers, sha256Text, summarizeRequestEvents,
 } from './lib/model-client.mjs';
 import { createBatchDirectory, sha256File } from './lib/run-files.mjs';
+import { currentProjectDataPath } from './lib/data-paths.mjs';
 
 const root = resolve(import.meta.dirname, '..');
 const scansDirectory = join(root, 'reports', 'scans');
@@ -236,8 +237,9 @@ if (!resumeArgument) {
   await writeFile(join(batchDirectory, 'run.json'), JSON.stringify(runMetadata, null, 2), 'utf8');
 }
 
-let sourceInputDirectory = join(root, 'data', '角色卡', '未分类');
+let sourceInputDirectory = join(root, 'data', '未分类角色卡');
 try { sourceInputDirectory = JSON.parse(await readFile(join(dirname(indexPath), 'summary.json'), 'utf8')).input_directory ?? sourceInputDirectory; } catch { /* Use default. */ }
+sourceInputDirectory = currentProjectDataPath(root, sourceInputDirectory);
 const records = []; const groups = new Map(); const indexErrors = [];
 let recordsRead = 0; let validCards = 0; let repairedIndexRecords = 0;
 for await (const input of readJsonlRecords(indexPath)) {
@@ -275,7 +277,7 @@ if (dryRun) {
     max_output_tokens_per_request: modelSettings.maxOutputTokens, http_requests_reserved: historicalUsage.requests,
     http_request_limit: httpLimit, http_requests_remaining: Math.max(0, httpLimit - historicalUsage.requests),
     retry_and_split_reserve: Math.max(0, httpLimit - historicalUsage.requests - initialBatches.length),
-    run_command: `node .\\src\\05-classify-character-cards.mjs --resume="${batchDirectory}"`,
+    run_command: `node .\\src\\050-classify-character-cards.mjs --resume="${batchDirectory}"`,
   }, null, 2));
   process.exit(0);
 }
@@ -338,7 +340,7 @@ if (workerError) {
   await writeFile(join(batchDirectory, 'fatal-error.json'), JSON.stringify({
     generated_utc: new Date().toISOString(), ...errorRecord(workerError), http_requests_total: budget.used,
     http_request_limit: budget.limit, http_requests_remaining: budget.remaining,
-    resume_command: `node .\\src\\05-classify-character-cards.mjs --resume="${batchDirectory}"`,
+    resume_command: `node .\\src\\050-classify-character-cards.mjs --resume="${batchDirectory}"`,
   }, null, 2), 'utf8');
   await new Promise((done) => setTimeout(done, 50));
   throw new Error(`${workerError.message}。检查点与调用额度已保存，可在排除问题后续跑：${batchDirectory}`);
@@ -407,7 +409,7 @@ const summary = {
   input_bytes_total: budget.inputBytes,
   input_bytes_this_process: budget.inputBytesThisProcess,
   resumed: Boolean(resumeArgument),
-  resume_command: `node .\\src\\05-classify-character-cards.mjs --resume="${batchDirectory}"`,
+  resume_command: `node .\\src\\050-classify-character-cards.mjs --resume="${batchDirectory}"`,
 };
 await writeFile(join(batchDirectory, 'summary.json'), JSON.stringify(summary, null, 2), 'utf8');
 await writeFile(join(batchDirectory, 'run.json'), JSON.stringify({

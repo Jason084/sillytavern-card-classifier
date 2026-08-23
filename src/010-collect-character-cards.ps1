@@ -1,10 +1,10 @@
 <#
 .SYNOPSIS
-第一阶段：从人工指定的来源目录复制 PNG/JSON 到本项目的待分类目录。
+第一阶段（010）：从人工指定的来源目录复制 PNG/JSON 到本项目的待分类目录。
 
 .INPUTS
 - 来源目录：脚本内的 $sourceDirectories（仅读取）。
-- 可选参数 -Destination：默认 data/角色卡/未分类。
+- 可选参数 -Destination：默认 data/未分类角色卡。
 - 可选参数 -ReportDirectory：默认 reports/collection。
 
 .OUTPUTS
@@ -13,7 +13,7 @@
 #>
 [CmdletBinding(SupportsShouldProcess)]
 param(
-    [string]$Destination = (Join-Path $PSScriptRoot '..\data\角色卡\未分类'),
+    [string]$Destination = (Join-Path $PSScriptRoot '..\data\未分类角色卡'),
     [string]$ReportDirectory = (Join-Path $PSScriptRoot '..\reports\collection')
 )
 

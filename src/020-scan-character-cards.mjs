@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 /*
- * 第二阶段：只读扫描 SillyTavern Character Card V1/V2/V3。
+ * 第二阶段（020）：只读扫描 SillyTavern Character Card V1/V2/V3。
  *
- * 输入：命令行第一个可选参数为待扫描目录，默认 data/角色卡/未分类；
+ * 输入：命令行第一个可选参数为待扫描目录，默认 data/未分类角色卡；
  *       仅递归读取其中的 .png 与 .json 文件。
  * 输出：命令行第二个可选参数为报告根目录，默认 reports/scans；每次扫描新建
  *       一个时间戳批次，包含 index.jsonl（统一索引）、audit.csv
@@ -14,7 +14,7 @@ import { basename, extname, join, relative, resolve } from 'node:path';
 import { createBatchDirectory } from './lib/run-files.mjs';
 
 const root = resolve(import.meta.dirname, '..');
-const inputDirectory = resolve(process.argv[2] ?? join(root, 'data', '角色卡', '未分类'));
+const inputDirectory = resolve(process.argv[2] ?? join(root, 'data', '未分类角色卡'));
 const reportsDirectory = resolve(process.argv[3] ?? join(root, 'reports', 'scans'));
 const PNG_SIGNATURE = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]);
 const V1_FIELDS = ['name', 'description', 'personality', 'scenario', 'first_mes', 'mes_example'];

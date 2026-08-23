@@ -57,7 +57,7 @@ test('扫描器校验 PNG CRC，并统一忽略 create_date 生成内容哈希',
   const corrupt = Buffer.from(png); corrupt[40] ^= 1; await writeFile(join(input, 'corrupt.png'), corrupt);
   await writeFile(join(input, 'same-card.json'), JSON.stringify(card('2026-12-31')));
 
-  await run(process.execPath, [join(root, 'src', '02-scan-character-cards.mjs'), input, reports]);
+  await run(process.execPath, [join(root, 'src', '020-scan-character-cards.mjs'), input, reports]);
   const batches = await readdir(reports); assert.equal(batches.length, 1);
   const records = (await readFile(join(reports, batches[0], 'index.jsonl'), 'utf8')).trim().split(/\r?\n/u).map(JSON.parse);
   const byName = new Map(records.map((record) => [record.file_name, record]));

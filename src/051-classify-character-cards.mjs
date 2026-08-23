@@ -12,6 +12,7 @@ import {
   requestModelJson, runWorkers, sha256Text, summarizeRequestEvents,
 } from './lib/model-client.mjs';
 import { createBatchDirectory, sha256File } from './lib/run-files.mjs';
+import { currentProjectDataPath } from './lib/data-paths.mjs';
 
 const root = resolve(import.meta.dirname, '..');
 const sourceReportsDirectory = join(root, 'reports', 'classifications');
@@ -423,7 +424,7 @@ const summary = {
   source_classifications_sha256: sourceClassificationsSha256,
   source_index: indexPath,
   source_index_sha256: sourceIndexSha256,
-  source_input_directory: JSON.parse(await readFile(join(dirname(sourceClassificationsPath), 'summary.json'), 'utf8')).source_input_directory,
+  source_input_directory: currentProjectDataPath(root, JSON.parse(await readFile(join(dirname(sourceClassificationsPath), 'summary.json'), 'utf8')).source_input_directory),
   standards_file: standardsPath,
   standards_sha256: standardsSha256,
   source_file_records: sourceRows.length,

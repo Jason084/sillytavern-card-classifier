@@ -127,7 +127,7 @@ async function onlyDirectory(path) { const entries = await readdir(path); assert
 async function jsonLines(path) { return (await readFile(path, 'utf8')).trim().split(/\r?\n/).filter(Boolean).map(JSON.parse); }
 
 try {
-  const duplicatesReports = join(temporary, 'duplicates'); await run('03-detect-duplicates.mjs', [scan, duplicatesReports], { environment: {} });
+  const duplicatesReports = join(temporary, 'duplicates'); await run('030-detect-duplicates.mjs', [scan, duplicatesReports], { environment: {} });
   const duplicateDirectory = await onlyDirectory(duplicatesReports); const duplicateGroups = await jsonLines(join(duplicateDirectory, 'duplicate-groups.jsonl'));
   assert.equal(JSON.parse(await readFile(join(duplicateDirectory, 'summary.json'), 'utf8')).repaired_index_records, 1);
   assert(duplicateGroups.some((group) => group.type === 'exact_file_duplicate'));
@@ -137,12 +137,12 @@ try {
 
   const noConfigReports = join(temporary, 'no-config-classifications');
   const noConfigEnvironment = { MODEL_API_BASE_URL: '', MODEL_API_KEY: '', CHEESE_API_KEY: '', MODEL_NAME: '' };
-  await run('05-classify-character-cards.mjs', [scan, standards, noConfigReports], { expectedCode: 1, environment: noConfigEnvironment });
+  await run('050-classify-character-cards.mjs', [scan, standards, noConfigReports], { expectedCode: 1, environment: noConfigEnvironment });
   await assert.rejects(readdir(noConfigReports), { code: 'ENOENT' });
 
   const classificationDryRunReports = join(temporary, 'classification-dry-run');
   const classificationRequestsBeforeDryRun = classificationRequests.length;
-  const classificationDryRun = await run('05-classify-character-cards.mjs', [scan, standards, classificationDryRunReports, '--dry-run']);
+  const classificationDryRun = await run('050-classify-character-cards.mjs', [scan, standards, classificationDryRunReports, '--dry-run']);
   assert.equal(classificationRequests.length, classificationRequestsBeforeDryRun, '第五阶段预检不能发送模型请求');
   assert(classificationDryRun.output.includes('"initial_request_batches": 3'));
   const classificationDryRunDirectory = await onlyDirectory(classificationDryRunReports);
@@ -153,19 +153,19 @@ try {
   const budgetedReports = join(temporary, 'budgeted-classifications');
   const oneRequestEnvironment = { ...modelEnvironment, MODEL_MAX_HTTP_REQUESTS: '1' };
   const requestsBeforeBudgetStop = classificationRequests.length;
-  await run('05-classify-character-cards.mjs', [scan, standards, budgetedReports], { expectedCode: 1, environment: oneRequestEnvironment });
+  await run('050-classify-character-cards.mjs', [scan, standards, budgetedReports], { expectedCode: 1, environment: oneRequestEnvironment });
   const budgetedDirectory = await onlyDirectory(budgetedReports);
   const budgetedUsage = await jsonLines(join(budgetedDirectory, 'usage.jsonl'));
   assert.equal(budgetedUsage.filter((event) => event.event === 'request_reserved').length, 1);
   assert.equal(classificationRequests.length, requestsBeforeBudgetStop + 1, '额度为 1 时只能发出一次请求');
   const requestsBeforeExhaustedResume = classificationRequests.length;
-  await run('05-classify-character-cards.mjs', [`--resume=${budgetedDirectory}`], { expectedCode: 1, environment: oneRequestEnvironment });
+  await run('050-classify-character-cards.mjs', [`--resume=${budgetedDirectory}`], { expectedCode: 1, environment: oneRequestEnvironment });
   assert.equal(classificationRequests.length, requestsBeforeExhaustedResume, '额度耗尽后续跑不能再发出请求');
 
   const classificationReports = join(temporary, 'classifications');
   const classificationEnvironment = { ...modelEnvironment, MODEL_BATCH_SIZE: '3' };
   const classificationRequestStart = classificationRequests.length;
-  await run('05-classify-character-cards.mjs', [scan, standards, classificationReports], { environment: classificationEnvironment });
+  await run('050-classify-character-cards.mjs', [scan, standards, classificationReports], { environment: classificationEnvironment });
   const classificationDirectory = await onlyDirectory(classificationReports);
   const firstRunClassificationRequests = classificationRequests.slice(classificationRequestStart);
   assert.equal(firstRunClassificationRequests.filter((ids) => ids.includes(hash('card-four'))).length, 1, '遗漏一项后不能重发同批已成功项');
@@ -194,20 +194,20 @@ try {
   const requestCountBeforeResume = classificationRequests.length;
   leaveRetryCardIncomplete = false;
   await writeFile(join(scan, 'index.jsonl'), `${indexText}\n`, 'utf8');
-  const changedIndexResume = await run('05-classify-character-cards.mjs', [`--resume=${classificationDirectory}`], { expectedCode: 1, environment: classificationEnvironment });
+  const changedIndexResume = await run('050-classify-character-cards.mjs', [`--resume=${classificationDirectory}`], { expectedCode: 1, environment: classificationEnvironment });
   assert(changedIndexResume.output.includes('扫描索引内容与原批次不一致'));
   await writeFile(join(scan, 'index.jsonl'), indexText, 'utf8');
   await writeFile(standards, `${standardsText}\n- 临时变化\n`, 'utf8');
-  const changedStandardsResume = await run('05-classify-character-cards.mjs', [`--resume=${classificationDirectory}`], { expectedCode: 1, environment: classificationEnvironment });
+  const changedStandardsResume = await run('050-classify-character-cards.mjs', [`--resume=${classificationDirectory}`], { expectedCode: 1, environment: classificationEnvironment });
   assert(changedStandardsResume.output.includes('分类标准与原批次不一致'));
   await writeFile(standards, standardsText, 'utf8');
   const runMetadataPath = join(classificationDirectory, 'run.json');
   const runMetadata = JSON.parse(await readFile(runMetadataPath, 'utf8'));
   await writeFile(runMetadataPath, JSON.stringify({ ...runMetadata, prompt_version: 'obsolete-prompt' }, null, 2), 'utf8');
-  const changedPromptResume = await run('05-classify-character-cards.mjs', [`--resume=${classificationDirectory}`], { expectedCode: 1, environment: classificationEnvironment });
+  const changedPromptResume = await run('050-classify-character-cards.mjs', [`--resume=${classificationDirectory}`], { expectedCode: 1, environment: classificationEnvironment });
   assert(changedPromptResume.output.includes('原提示词版本'));
   await writeFile(runMetadataPath, JSON.stringify(runMetadata, null, 2), 'utf8');
-  await run('05-classify-character-cards.mjs', [`--resume=${classificationDirectory}`], { environment: classificationEnvironment });
+  await run('050-classify-character-cards.mjs', [`--resume=${classificationDirectory}`], { environment: classificationEnvironment });
   const resumedRequests = classificationRequests.slice(requestCountBeforeResume).flat();
   assert.deepEqual(new Set(resumedRequests), new Set([hash('card-five')]), '续跑只能请求此前未完成的唯一内容');
   const resumedSummary = JSON.parse(await readFile(join(classificationDirectory, 'summary.json'), 'utf8'));
@@ -261,15 +261,29 @@ try {
   assert.equal((await jsonLines(join(classificationReview2Directory, 'rechecked-classifications.jsonl'))).length, 1);
 
   const destination = join(temporary, 'organized'); const planReports = join(temporary, 'plans');
-  await run('06-organize-character-cards.mjs', [classificationDirectory, destination, planReports], { environment: {} });
+  await run('060-organize-character-cards.mjs', [classificationReview2Directory, destination, planReports], { environment: {} });
   const planDirectory = await onlyDirectory(planReports); const plan = await jsonLines(join(planDirectory, 'plan.jsonl'));
-  assert.equal(plan.length, 6);
-  assert.equal(new Set(plan.map((item) => item.destination_path)).size, 6);
+  assert.equal(plan.length, 9);
+  assert.equal(new Set(plan.map((item) => item.destination_path)).size, 9);
+  assert.equal(plan.filter((item) => item.model_decision === 'classify').length, 7);
+  assert.equal(plan.find((item) => item.model_decision === 'exclude').category, '排除');
+  assert.equal(plan.find((item) => item.model_decision === 'review').category, '未分类');
+  assert.deepEqual(new Set(plan.filter((item) => item.category === '标准外').map((item) => item.original_category)), new Set(['现代都市', '特殊设定']));
+  const organizationSummary = JSON.parse(await readFile(join(planDirectory, 'summary.json'), 'utf8'));
+  assert.equal(organizationSummary.files_to_excluded_folder, 1);
+  assert.equal(organizationSummary.files_to_unclassified_folder, 1);
+  assert.equal(organizationSummary.files_classified, 7);
+  assert.equal(organizationSummary.files_to_standard_categories, 5);
+  assert.equal(organizationSummary.files_to_nonstandard_folder, 2);
+  assert.equal(organizationSummary.files_planned, 9);
   const organizationApprovalPath = join(planDirectory, 'approval.json');
   const organizationApproval = JSON.parse(await readFile(organizationApprovalPath, 'utf8')); organizationApproval.approved = true;
   await writeFile(organizationApprovalPath, JSON.stringify(organizationApproval, null, 2), 'utf8');
-  await run('06-organize-character-cards.mjs', ['--execute', planDirectory], { environment: {} });
-  assert.equal((await readdir(join(destination, '同人'))).length, 4);
+  await run('060-organize-character-cards.mjs', ['--execute', planDirectory], { environment: {} });
+  assert.equal((await readdir(join(destination, '同人'))).length, 5);
+  assert.equal((await readdir(join(destination, '标准外'))).length, 2);
+  assert.equal((await readdir(join(destination, '排除'))).length, 1);
+  assert.equal((await readdir(join(destination, '未分类'))).length, 1);
 
   const collisionClassification = join(temporary, 'collision-classification'); await mkdir(collisionClassification);
   const collisionRows = [
@@ -279,14 +293,14 @@ try {
   await writeFile(join(collisionClassification, 'classifications.jsonl'), `${collisionRows.map(JSON.stringify).join('\n')}\n`, 'utf8');
   await writeFile(join(collisionClassification, 'summary.json'), JSON.stringify({ source_input_directory: input, categories: ['奇幻/冒险', '奇幻:冒险'] }), 'utf8');
   const collisionPlanReports = join(temporary, 'collision-plans');
-  const collisionResult = await run('06-organize-character-cards.mjs', [collisionClassification, join(temporary, 'collision-output'), collisionPlanReports], { expectedCode: 1, environment: {} });
+  const collisionResult = await run('060-organize-character-cards.mjs', [collisionClassification, join(temporary, 'collision-output'), collisionPlanReports], { expectedCode: 1, environment: {} });
   assert(collisionResult.output.includes('分类目录名冲突'));
   await assert.rejects(readdir(collisionPlanReports), { code: 'ENOENT' });
 
   const reservedClassification = join(temporary, 'reserved-classification'); await mkdir(reservedClassification);
   await writeFile(join(reservedClassification, 'classifications.jsonl'), `${JSON.stringify({ ...classifications[0], category: 'CON', needs_review: false })}\n`, 'utf8');
   await writeFile(join(reservedClassification, 'summary.json'), JSON.stringify({ source_input_directory: input, categories: ['CON'] }), 'utf8');
-  const reservedResult = await run('06-organize-character-cards.mjs', [reservedClassification, join(temporary, 'reserved-output'), join(temporary, 'reserved-plans')], { expectedCode: 1, environment: {} });
+  const reservedResult = await run('060-organize-character-cards.mjs', [reservedClassification, join(temporary, 'reserved-output'), join(temporary, 'reserved-plans')], { expectedCode: 1, environment: {} });
   assert(reservedResult.output.includes('无效分类目录名'));
 
   console.log('第三、第五、第六阶段纯模型流水线及断点续跑测试通过');

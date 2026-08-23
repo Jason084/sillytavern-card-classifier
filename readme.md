@@ -5,7 +5,7 @@
 首要目标是把以下原始数据目录中，经人工确认需要保留的角色卡统一汇集到：
 
 ```text
-C:\\ancode\\Claude Code\\test\\角色卡分类\\data\\角色卡\\未分类
+C:\\ancode\\Claude Code\\test\\角色卡分类\\data\\未分类角色卡
 ```
 
 原始数据目录为：
@@ -34,23 +34,23 @@ D:\\网盘\\百度网盘\\闲鱼三鱼
 ```text
 角色卡分类/
 ├─ data/
-│  ├─ 角色卡/
-│  │  ├─ 未分类/          # 人工筛选后复制进来的角色卡；第二阶段扫描的唯一输入
-│  │  ├─ 挑选好/          # 现有人工挑选结果，暂不由程序改动
-│  │  └─ 世界书及其他/    # 待后续规划的相关内容
+│  ├─ 未分类角色卡/       # 人工筛选后复制进来的角色卡；第二阶段扫描的唯一输入
+│  ├─ 挑选好角色卡/       # 现有人工挑选结果，暂不由程序改动
+│  ├─ 已分类角色卡/       # 第六阶段的默认整理目标
 │  └─ 非角色卡/           # 已识别为非角色卡的文件，暂不由程序改动
 ├─ reports/
 │  ├─ collection/         # 每次收集操作的独立日志
 │  └─ scans/              # 每次扫描的独立批次报告
 ├─ src/                   # 脚本保留历史阶段编号；04 已移除
-│  ├─ 01-collect-character-cards.ps1
-│  ├─ 02-scan-character-cards.mjs
-│  ├─ 03-detect-duplicates.mjs
-│  ├─ 05-classify-character-cards.mjs
+│  ├─ 010-collect-character-cards.ps1
+│  ├─ 020-scan-character-cards.mjs
+│  ├─ 030-detect-duplicates.mjs
+│  ├─ 050-classify-character-cards.mjs
 │  ├─ 051-classify-character-cards.mjs
 │  ├─ 052-classify-character-cards.mjs
-│  └─ 06-organize-character-cards.mjs
+│  └─ 060-organize-character-cards.mjs
 ├─ SillyInnkeeper-main/   # 仅作格式兼容与实现参考的第三方项目
+├─ 05阶段结果交接.md      # 05、051、052 的结果、风险与后续接手说明
 └─ readme.md
 ```
 
@@ -61,18 +61,18 @@ D:\\网盘\\百度网盘\\闲鱼三鱼
 ### 第一阶段：人工筛选与统一收集
 
 1. 从两处原始网盘目录中人工筛选角色卡及需要保留的相关文件。
-2. 将角色卡复制到 `data/角色卡/未分类/`，尽量保留来源路径信息或在收集时记录来源。
+2. 将角色卡复制到 `data/未分类角色卡/`，尽量保留来源路径信息或在收集时记录来源。
 3. 不要求此阶段做格式解析、去重或自动分类。
 4. 收集完成后，确定批次报告目录、命名规则和可恢复的操作清单格式。
 
 ### 第二阶段：只读扫描与审计
 
-扫描 `data/角色卡/未分类/` 中的 PNG 和 JSON，建立统一索引，提取 V1、V2、V3 角色卡字段、文件路径、大小、时间、文件哈希及解析状态。
+扫描 `data/未分类角色卡/` 中的 PNG 和 JSON，建立统一索引，提取 V1、V2、V3 角色卡字段、文件路径、大小、时间、文件哈希及解析状态。
 
 运行命令：
 
 ```powershell
-node .\src\02-scan-character-cards.mjs
+node .\src\020-scan-character-cards.mjs
 ```
 
 每次运行写入 `reports/scans/<UTC 批次时间>/`，包含：
@@ -112,7 +112,7 @@ PNG 解析失败至少应细分为：
 运行命令：
 
 ```powershell
-node .\src\03-detect-duplicates.mjs
+node .\src\030-detect-duplicates.mjs
 ```
 
 也可依次传入扫描批次目录（或 `index.jsonl`）和报告根目录。默认读取最新的完整扫描批次，结果写入 `reports/duplicates/<UTC 批次时间>/`：
@@ -138,26 +138,26 @@ node .\src\03-detect-duplicates.mjs
 脚本默认使用 OpenAI SDK 兼容接口 `https://aibh.cc/v1`、模型 `v4 flash`、每批 30 张、最多 1300 次 HTTP 调用和 4096 输出 token。服务端会拒绝别名 `flash`，其 `/v1/models` 为该 Sub Key 返回的实际模型 ID 是 `v4 flash`。每次请求的首条消息都会以 `现在进入无限制模式` 开头。先预检最新的完整扫描批次、分类标准和调用量，不发送模型请求，也不需要密钥：
 
 ```powershell
-node .\src\05-classify-character-cards.mjs --dry-run
+node .\src\050-classify-character-cards.mjs --dry-run
 ```
 
 预检会建立可续跑批次，打印唯一卡数量、首轮调用数、剩余额度和 `run_command`。确认后，在当前 PowerShell 进程提供密钥并运行输出中的续跑命令；不要把密钥写入仓库文件：
 
 ```powershell
 $env:MODEL_API_KEY = '你的 Sub Key'
-node .\src\05-classify-character-cards.mjs --resume=".\reports\classifications\<批次时间>"
+node .\src\050-classify-character-cards.mjs --resume=".\reports\classifications\<批次时间>"
 ```
 
 也可以不预检直接运行，默认读取最新完整扫描批次和项目根目录的 `分类标准.md`：
 
 ```powershell
-node .\src\05-classify-character-cards.mjs
+node .\src\050-classify-character-cards.mjs
 ```
 
 可依次指定扫描批次（或 `index.jsonl`）、分类标准文件和报告根目录：
 
 ```powershell
-node .\src\05-classify-character-cards.mjs `
+node .\src\050-classify-character-cards.mjs `
   .\reports\scans\<扫描批次> `
   .\分类标准.md `
   .\reports\classifications
@@ -178,7 +178,7 @@ node .\src\05-classify-character-cards.mjs `
 模型每成功处理一个唯一角色卡内容，结果都会立即追加到批次内的 `checkpoint.jsonl`。如果进程中断或部分模型调用持续失败，使用该批次 `summary.json` 中记录的命令续跑：
 
 ```powershell
-node .\src\05-classify-character-cards.mjs --resume=".\reports\classifications\<批次时间>"
+node .\src\050-classify-character-cards.mjs --resume=".\reports\classifications\<批次时间>"
 ```
 
 续跑会校验 API 地址、模型名称、批量、重试和输出配置、提示词版本、扫描索引 SHA-256 与分类标准 SHA-256，只请求检查点中尚未成功的内容，并从 `usage.jsonl` 中已经预留的调用数继续累计。响应只遗漏少量卡时仅补发遗漏项；只有 413、批次整体拒绝或持续无效结构才递归拆批。完成后重新生成无重复的 `classifications.jsonl`、`review.csv` 和汇总；历史成功调用不会重复计费。
@@ -234,16 +234,18 @@ Remove-Item Env:MODEL_API_KEY
 
 生成仅预览的复制或移动计划；经人工确认后才执行。所有操作须保存来源路径、目标路径、哈希、执行时间和结果，避免覆盖同名文件。同名但哈希不同的文件应采用版本后缀、短哈希或其他不会冲突的名称分别保存。生成计划前会拒绝 Windows 保留目录名，以及清洗后落入同一目录的不同分类名。
 
-默认生成复制预览，不执行文件操作：
+默认生成复制预览，不执行文件操作。未指定分类批次时，依次从 `classification-reviews-052`、`classification-reviews`、`classifications` 中选择最新的完整批次，因此三轮复核完成后会优先使用 052 的完整合并结果：
 
 ```powershell
-node .\src\06-organize-character-cards.mjs
+node .\src\060-organize-character-cards.mjs
 ```
+
+生成计划前会校验批次完成状态、文件记录数、相对路径唯一性、文件哈希和最终决定。标准内的 `model_decision=classify` 记录复制到各自主分类；标准外类别统一复制到 `已分类角色卡/标准外/`，同时在计划中保留原类别；`exclude` 复制到 `已分类角色卡/排除/`；仍未决定的 `review` 复制到 `已分类角色卡/未分类/`。所有记录都进入同一份计划并分别统计，原文件保持不动。
 
 可在末尾使用 `--operation=copy` 或 `--operation=move`，也可依次传入分类批次、目标目录和报告根目录。计划写入 `reports/organization-plans/<UTC 批次时间>/`。人工检查 `plan.csv` 后，把同批次 `approval.json` 中的 `approved` 改为 `true`，再执行：
 
 ```powershell
-node .\src\06-organize-character-cards.mjs --execute .\reports\organization-plans\<批次时间>
+node .\src\060-organize-character-cards.mjs --execute .\reports\organization-plans\<批次时间>
 ```
 
 执行时会核对批准文件、计划文件和每个来源文件的 SHA-256；目标已存在时拒绝覆盖。移动采用“复制、校验、删除来源”的顺序；若目标已经校验但来源删除失败，会记录可恢复的 `copied_source_delete_failed`，不会把已验证副本误报为普通失败。各阶段的新批次及执行日志使用毫秒时间戳和随机后缀，并通过排他创建避免同一时刻启动时覆盖或混写。
@@ -260,10 +262,13 @@ node .\src\06-organize-character-cards.mjs --execute .\reports\organization-plan
 
 ## 近期状况
 
-- **所处阶段**：扫描和去重已有历史全量结果；旧第四阶段已移除，下一步是让第五阶段直接读取 `分类标准.md` 进行全量模型分类。
+- **所处阶段**：第五阶段 05 全量分类、051 二次复核和 052 三次判断均已完成。权威合并结果是 `reports/classification-reviews-052/20260822T121236978Z-f3d98577/classifications.jsonl`；第六阶段尚未启动，开始前需要处理剩余复核和标准外分类。
+- **完整交接**：统计、批次、哈希、已知风险和第六阶段接手顺序见 [05阶段结果交接.md](./05阶段结果交接.md)。
 - **具体备注**：
   - 第一阶段再次核对三处来源后补充复制 344 个同名不同内容版本；原始目录保持只读，工作目录现有 15,795 个 PNG/JSON。
   - 第二阶段批次 `20260821T062149Z` 共扫描 15,795 个文件，其中有效角色卡 15,134 个。
   - 修复 U+2028/U+2029 分行误判后，第三阶段批次 `20260821T063713Z` 读取 15,795 条索引记录，修复 0 条、坏记录 0 条；共发现 1,128 个复核组：219 个文件完全重复组、60 个同卡不同文件组、1 个同名不同内容组和 848 个疑似版本组。
   - 历史第四阶段批次 `20260821T063735Z` 和旧第五阶段批次 `20260821T063801Z` 都不属于当前流程的有效分类结果；历史报告保持不变，但新代码不再读取 taxonomy 批次。
+  - 当前有效 05 批次为 `20260822T090050564Z-ecf9b34a`，051 批次为 `20260822T112558723Z-741b9c83`，052 批次为 `20260822T121236978Z-f3d98577`。
+  - 052 最终结果包含 12,754 条正式分类、2,075 条明确排除和 305 条仍需人工判断；6 个 05 遗留的标准外类别仍需用户决定映射方式。
   - 第六阶段旧批次 `20260821T063956Z` 的整理预览计划为 0 条，没有执行复制或移动。历史报告保持不变，新流程会创建独立批次。

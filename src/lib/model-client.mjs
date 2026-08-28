@@ -70,6 +70,12 @@ function boundedPositiveInteger(name, fallback, maximum) {
   return value;
 }
 
+function nonNegativeInteger(name, fallback) {
+  const value = Number.parseInt(process.env[name] ?? String(fallback), 10);
+  if (!Number.isInteger(value) || value < 0) throw new Error(`${name} 必须是非负整数`);
+  return value;
+}
+
 function configuredText(name, fallback = '') {
   const configured = String(process.env[name] ?? '').trim();
   return configured || String(fallback ?? '').trim();
@@ -96,6 +102,8 @@ export function modelSettingsFromEnv(defaults = {}) {
     concurrency: boundedPositiveInteger('MODEL_CONCURRENCY', defaults.concurrency ?? DEFAULT_MODEL_CONCURRENCY, 10),
     maxAttempts: boundedPositiveInteger('MODEL_MAX_ATTEMPTS', defaults.maxAttempts ?? DEFAULT_MODEL_MAX_ATTEMPTS, 3),
     maxOutputTokens: positiveInteger('MODEL_MAX_OUTPUT_TOKENS', defaults.maxOutputTokens ?? DEFAULT_MODEL_MAX_OUTPUT_TOKENS),
+    minRequestIntervalMs: nonNegativeInteger('MODEL_MIN_REQUEST_INTERVAL_MS', defaults.minRequestIntervalMs ?? 0),
+    rateLimitBackoffMs: positiveInteger('MODEL_RATE_LIMIT_BACKOFF_MS', defaults.rateLimitBackoffMs ?? 5_000),
     confidenceThreshold,
     usingDefaultBaseUrl,
   };
@@ -103,7 +111,13 @@ export function modelSettingsFromEnv(defaults = {}) {
 
 export function parseModelJson(text) {
   const cleaned = String(text ?? '').trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '');
-  return JSON.parse(cleaned);
+  try { return JSON.parse(cleaned); }
+  catch (directError) {
+    const firstBrace = cleaned.indexOf('{');
+    const lastBrace = cleaned.lastIndexOf('}');
+    if (firstBrace < 0 || lastBrace <= firstBrace) throw directError;
+    return JSON.parse(cleaned.slice(firstBrace, lastBrace + 1));
+  }
 }
 
 function delay(milliseconds) {
@@ -111,13 +125,22 @@ function delay(milliseconds) {
 }
 
 export class ModelRequestError extends Error {
-  constructor(message, { status = null, retryable = false, fatal = false, splittable = false, cause } = {}) {
+  constructor(message, { status = null, retryable = false, fatal = false, splittable = false, retryAfterMs = null, cause } = {}) {
     super(message, cause ? { cause } : undefined);
     this.name = 'ModelRequestError';
     this.status = status;
     this.retryable = retryable;
     this.fatal = fatal;
     this.splittable = splittable;
+    this.retryAfterMs = retryAfterMs;
+  }
+}
+
+export class ModelContentFilterError extends ModelRequestError {
+  constructor(content) {
+    super(`模型服务内容过滤：${compact(content, 160)}`, { retryable: false, splittable: false });
+    this.name = 'ModelContentFilterError';
+    this.contentFilter = true;
   }
 }
 
@@ -170,10 +193,51 @@ export function createRequestBudget(limit, maxInputBytes = null, initial = {}) {
   };
 }
 
-function httpError(status, text) {
+function retryAfterMilliseconds(response) {
+  const value = response.headers.get('retry-after');
+  if (!value) return null;
+  const seconds = Number(value);
+  if (Number.isFinite(seconds) && seconds >= 0) return Math.ceil(seconds * 1_000);
+  const date = Date.parse(value);
+  return Number.isFinite(date) ? Math.max(0, date - Date.now()) : null;
+}
+
+function httpError(status, text, retryAfterMs = null) {
   const retryable = status === 408 || status === 409 || status === 425 || status === 429 || status >= 500;
   const fatal = [400, 401, 402, 403, 404, 405, 422].includes(status);
-  return new ModelRequestError(`HTTP ${status}: ${compact(text, 300)}`, { status, retryable, fatal, splittable: status === 413 });
+  return new ModelRequestError(`HTTP ${status}: ${compact(text, 300)}`, {
+    status, retryable, fatal, splittable: status === 413, retryAfterMs,
+  });
+}
+
+const requestSchedules = new WeakMap();
+
+function requestSchedule(settings) {
+  let state = requestSchedules.get(settings);
+  if (!state) {
+    state = { tail: Promise.resolve(), nextAt: 0 };
+    requestSchedules.set(settings, state);
+  }
+  return state;
+}
+
+async function waitForRequestSlot(settings) {
+  const state = requestSchedule(settings);
+  let release;
+  const previous = state.tail;
+  state.tail = new Promise((resolve) => { release = resolve; });
+  await previous;
+  try {
+    while (state.nextAt > Date.now()) await delay(state.nextAt - Date.now());
+    state.nextAt = Date.now() + Math.max(0, settings.minRequestIntervalMs ?? 0);
+  } finally {
+    release();
+  }
+}
+
+function deferRequestSlots(settings, milliseconds) {
+  const state = requestSchedule(settings);
+  state.nextAt = Math.max(state.nextAt, Date.now() + milliseconds);
 }
 
 async function reportEvent(onEvent, event) {
@@ -198,6 +262,7 @@ export async function requestModelJson(settings, messages, options = {}) {
   const requestBytes = Buffer.byteLength(bodyText);
   let lastError;
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    await waitForRequestSlot(settings);
     const sequence = budget?.take(requestBytes) ?? null;
     const attemptId = `${phase}:${requestId ?? 'request'}:${sequence ?? attempt}`;
     await reportEvent(onEvent, {
@@ -215,7 +280,7 @@ export async function requestModelJson(settings, messages, options = {}) {
       });
       const responseText = await response.text();
       responseBytes = Buffer.byteLength(responseText);
-      if (!response.ok) throw httpError(response.status, responseText);
+      if (!response.ok) throw httpError(response.status, responseText, retryAfterMilliseconds(response));
       let payload;
       try {
         payload = JSON.parse(responseText);
@@ -225,6 +290,10 @@ export async function requestModelJson(settings, messages, options = {}) {
       responseUsage = payload.usage ?? null;
       const content = payload.choices?.[0]?.message?.content;
       if (typeof content !== 'string') throw new ModelRequestError('模型响应缺少 choices[0].message.content', { retryable: true, splittable: true });
+      if (/^The prompt could not be submitted\b/iu.test(content.trim())
+        || (Number(responseUsage?.completion_tokens) === 0 && /sensitive words|Prohibited Use Policy/iu.test(content))) {
+        throw new ModelContentFilterError(content);
+      }
       let parsed;
       try {
         parsed = parseModelJson(content);
@@ -247,6 +316,10 @@ export async function requestModelJson(settings, messages, options = {}) {
         request_bytes: requestBytes, response_bytes: responseBytes, usage: responseUsage, error: compact(lastError.message, 300),
       });
       if (isFatalModelError(lastError) || !lastError.retryable || attempt >= maxAttempts) break;
+      if (lastError.status === 429) {
+        const fallback = (settings.rateLimitBackoffMs ?? 5_000) * 2 ** (attempt - 1);
+        deferRequestSlots(settings, Math.max(fallback, lastError.retryAfterMs ?? 0));
+      }
       await delay(500 * 2 ** (attempt - 1));
     }
   }

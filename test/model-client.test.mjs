@@ -2,9 +2,15 @@ import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
 import test from 'node:test';
 import {
-  ModelBudgetExceededError, cardModelInput, createRequestBudget, hasSemanticContent, modelSettingsFromEnv,
-  requestModelJson, summarizeRequestEvents,
+  ModelBudgetExceededError, ModelContentFilterError, cardModelInput, createRequestBudget, hasSemanticContent, modelSettingsFromEnv,
+  parseModelJson, requestModelJson, summarizeRequestEvents,
 } from '../src/lib/model-client.mjs';
+
+test('模型 JSON 解析接受代码围栏或外层说明，但拒绝无 JSON 文本', () => {
+  assert.deepEqual(parseModelJson('```json\n{"ok":true}\n```'), { ok: true });
+  assert.deepEqual(parseModelJson('处理完成：\n{"ok":true}\n以上。'), { ok: true });
+  assert.throws(() => parseModelJson('处理完成，但没有 JSON'));
+});
 
 test('模型分类输入覆盖决定整体语义的扩展字段', () => {
   const input = cardModelInput({
@@ -61,6 +67,45 @@ test('非 JSON 输出只做有限重试，并记录 usage 与输出上限', asyn
   const completions = events.filter((event) => event.event === 'request_completed');
   assert.equal(completions.length, 2); assert.equal(completions[0].usage.total_tokens, 12); assert.equal(completions[1].usage.total_tokens, 12);
   assert.deepEqual(summarizeRequestEvents(events), { requests: 2, inputBytes: events[0].request_bytes * 2 });
+});
+
+test('HTTP 200 包装的上游内容过滤被识别且不重复请求', async () => {
+  let requests = 0;
+  await withServer((_request, response) => {
+    requests += 1;
+    response.writeHead(200, { 'content-type': 'application/json' });
+    response.end(JSON.stringify({
+      choices: [{ message: { content: 'The prompt could not be submitted. The prompt contains sensitive words that violate Google policy.' } }],
+      usage: { prompt_tokens: 10, completion_tokens: 0, total_tokens: 10 },
+    }));
+  }, async (url) => {
+    await assert.rejects(
+      requestModelJson(settings(url, { maxAttempts: 3 }), [{ role: 'user', content: 'x' }]),
+      (error) => error instanceof ModelContentFilterError && error.contentFilter === true,
+    );
+  });
+  assert.equal(requests, 1);
+});
+
+test('429 按 Retry-After 全局退避后再重试', async () => {
+  const started = [];
+  await withServer((_request, response) => {
+    started.push(Date.now());
+    if (started.length === 1) {
+      response.writeHead(429, { 'content-type': 'application/json', 'retry-after': '0.05' });
+      response.end(JSON.stringify({ error: { code: 429 } }));
+      return;
+    }
+    response.writeHead(200, { 'content-type': 'application/json' });
+    response.end(JSON.stringify({ choices: [{ message: { content: JSON.stringify({ ok: true }) } }] }));
+  }, async (url) => {
+    const result = await requestModelJson(settings(url, {
+      maxAttempts: 2, minRequestIntervalMs: 5, rateLimitBackoffMs: 20,
+    }), [{ role: 'user', content: 'x' }]);
+    assert.deepEqual(result, { ok: true });
+  });
+  assert.equal(started.length, 2);
+  assert(started[1] - started[0] >= 45);
 });
 
 test('HTTP 请求预算在重试前硬熔断', async () => {

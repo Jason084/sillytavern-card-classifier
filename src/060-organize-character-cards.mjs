@@ -9,25 +9,23 @@
  * 执行前后均核对 SHA-256，且绝不覆盖已有目标文件。
  */
 import { createHash } from 'node:crypto';
-import { constants, createReadStream } from 'node:fs';
-import { copyFile, mkdir, open, readFile, readdir, stat, unlink, writeFile } from 'node:fs/promises';
-import { basename, dirname, extname, isAbsolute, join, resolve, sep } from 'node:path';
+import { createReadStream } from 'node:fs';
+import { open, readFile, readdir, stat, writeFile } from 'node:fs/promises';
+import { basename, dirname, isAbsolute, join, resolve } from 'node:path';
 import { createInterface } from 'node:readline';
-import { createBatchDirectory, newRunId, sha256File } from './lib/run-files.mjs';
+import { createBatchDirectory, sha256File } from './lib/run-files.mjs';
 import { currentProjectDataPath } from './lib/data-paths.mjs';
+import { isMainModule, parseOrganizationArguments } from './lib/cli.mjs';
+import { csv, readJsonIfPresent } from './lib/report-io.mjs';
+import { availableDestination, executeApprovedPlan, isInside, normalizedPath, validatePlanPath } from './lib/organization-plan.mjs';
 
+export async function main(args = process.argv.slice(2)) {
 const root = resolve(import.meta.dirname, '..');
-const rawArguments = process.argv.slice(2); const execute = rawArguments.includes('--execute');
-const operationArgument = rawArguments.find((argument) => argument.startsWith('--operation='));
-const operation = operationArgument?.slice('--operation='.length) ?? 'copy';
+const { execute, operation, positionals } = parseOrganizationArguments(args, { allowOperation: true });
 const excludedCategory = '排除';
 const unresolvedCategory = '未分类';
 const nonstandardCategory = '标准外';
-const positionals = rawArguments.filter((argument) => argument !== '--execute' && !argument.startsWith('--operation='));
 if (!['copy', 'move'].includes(operation)) throw new Error('--operation 只能是 copy 或 move');
-function csv(values) { return values.map((value) => `"${String(value ?? '').replaceAll('"', '""')}"`).join(',') + '\n'; }
-function normalizedPath(path) { return resolve(path).toLocaleLowerCase('en-US'); }
-function isInside(path, directory) { const target = normalizedPath(path); const parent = normalizedPath(directory); return target === parent || target.startsWith(`${parent}${sep.toLocaleLowerCase('en-US')}`); }
 function currentDataPath(path) { return currentProjectDataPath(root, path); }
 function safeCategory(value) {
   const output = String(value ?? '').normalize('NFKC').replace(/[<>:"/\\|?*\u0000-\u001F]/g, '_').replace(/[. ]+$/g, '').trim();
@@ -52,10 +50,6 @@ async function latestFile(directory, fileName) {
   }
   candidates.sort((a, b) => basename(dirname(b)).localeCompare(basename(dirname(a))));
   if (!candidates.length) throw new Error(`找不到 ${fileName}：${directory}`); return candidates[0];
-}
-async function readJsonIfPresent(path) {
-  try { return JSON.parse(await readFile(path, 'utf8')); }
-  catch (error) { if (error.code === 'ENOENT') return null; throw error; }
 }
 async function latestCompleteClassificationFile() {
   const roots = [
@@ -82,15 +76,6 @@ async function latestCompleteClassificationFile() {
 async function fileFromArgument(argument, defaultDirectory, fileName) {
   if (!argument) return latestFile(defaultDirectory, fileName);
   const path = resolve(argument); const info = await stat(path); return info.isDirectory() ? join(path, fileName) : path;
-}
-async function availableDestination(initialPath, fileHash, allocated) {
-  const extension = extname(initialPath); const stem = basename(initialPath, extension); const directory = dirname(initialPath);
-  let candidate = initialPath; let number = 1;
-  while (allocated.has(normalizedPath(candidate)) || await stat(candidate).then(() => true, () => false)) {
-    const suffix = number === 1 ? `__${fileHash.slice(0, 12)}` : `__${fileHash.slice(0, 12)}-${number}`;
-    candidate = join(directory, `${stem}${suffix}${extension}`); number += 1;
-  }
-  allocated.add(normalizedPath(candidate)); return candidate;
 }
 
 async function previewPlan() {
@@ -157,7 +142,7 @@ async function previewPlan() {
       ? isNonstandard ? nonstandardCategory : result.category
       : result.model_decision === 'exclude' ? excludedCategory : unresolvedCategory;
     const category = validatedCategory(outputCategory, categoryOwners); const initialDestination = join(destinationRoot, category, basename(result.file_name ?? result.relative_path));
-    const destinationPath = await availableDestination(initialDestination, result.sha256, allocated);
+    const destinationPath = await availableDestination(initialDestination, result.sha256, allocated, { rejectExisting: true });
     let status = 'planned'; let detail = '';
     try { if (!(await stat(sourcePath)).isFile()) throw new Error('不是普通文件'); }
     catch (error) { status = 'source_missing'; detail = error.message; missingSources += 1; }
@@ -184,54 +169,27 @@ async function previewPlan() {
 
 async function executePlan() {
   const planPath = await fileFromArgument(positionals[0], join(root, 'reports', 'organization-plans'), 'plan.jsonl');
-  const batchDirectory = dirname(planPath); const approvalPath = resolve(positionals[1] ?? join(batchDirectory, 'approval.json'));
-  const approval = JSON.parse(await readFile(approvalPath, 'utf8')); const actualPlanHash = await sha256File(planPath);
-  if (approval.approved !== true) throw new Error('计划尚未批准：请先人工检查 plan.csv，再将 approval.json 中的 approved 改为 true');
-  if (approval.plan_sha256 !== actualPlanHash) throw new Error('计划哈希与批准文件不一致，拒绝执行');
-  if (!['copy', 'move'].includes(approval.operation)) throw new Error('批准文件中的 operation 无效');
-  const destinationRoot = currentDataPath(approval.destination_root); const executionRunId = newRunId(); const logPath = join(batchDirectory, `execution-${executionRunId}.jsonl`);
-  const logHandle = await open(logPath, 'wx'); const csvHandle = await open(join(batchDirectory, `execution-${executionRunId}.csv`), 'wx');
-  await csvHandle.write(csv(['executed_utc', 'operation', 'source_path', 'destination_path', 'sha256', 'result', 'detail']));
-  const counts = new Map(); let recordsRead = 0;
-  for await (const line of createInterface({ input: createReadStream(planPath), crlfDelay: Infinity })) {
-    if (!line.trim()) continue; const plan = JSON.parse(line); recordsRead += 1;
-    const sourcePath = currentDataPath(plan.source_path); const destinationPath = currentDataPath(plan.destination_path);
-    let result = 'skipped'; let detail = ''; let destinationCreated = false; let destinationVerified = false;
-    try {
+  const batchDirectory = dirname(planPath);
+  const approvalPath = resolve(positionals[1] ?? join(batchDirectory, 'approval.json'));
+  const approval = JSON.parse(await readFile(approvalPath, 'utf8'));
+  const logPath = await executeApprovedPlan({
+    planPath,
+    approval,
+    batchDirectory,
+    allowedOperations: ['copy', 'move'],
+    mapPath: currentDataPath,
+    approvalError: '计划尚未批准：请先人工检查 plan.csv，再将 approval.json 中的 approved 改为 true',
+    operationError: '批准文件中的 operation 无效',
+    includeOperationInLog: true,
+    validatePlan({ plan, approval: approved, sourcePath, destinationPath, destinationRoot }) {
       if (plan.status !== 'planned') throw new Error(`计划状态为 ${plan.status}`);
-      if (plan.operation !== approval.operation) throw new Error('单条计划的操作类型与批准文件不一致');
-      if (!isAbsolute(plan.source_path) || !isAbsolute(plan.destination_path) || !isInside(destinationPath, destinationRoot) || normalizedPath(destinationPath) === normalizedPath(destinationRoot)) throw new Error('目标路径越界');
-      const sourceHash = await sha256File(sourcePath); if (sourceHash !== plan.sha256) throw new Error('来源文件已变化，SHA-256 不匹配');
-      try { await stat(destinationPath); throw new Error('目标文件已存在，拒绝覆盖'); } catch (error) { if (error.message === '目标文件已存在，拒绝覆盖') throw error; if (error.code !== 'ENOENT') throw error; }
-      await mkdir(dirname(destinationPath), { recursive: true });
-      await copyFile(sourcePath, destinationPath, constants.COPYFILE_EXCL);
-      destinationCreated = true;
-      const destinationHash = await sha256File(destinationPath);
-      if (destinationHash !== plan.sha256) throw new Error('复制后哈希校验失败');
-      destinationVerified = true;
-      if (approval.operation === 'move') await unlink(sourcePath);
-      result = approval.operation === 'move' ? 'moved' : 'copied';
-    } catch (error) {
-      if (destinationCreated && destinationVerified && approval.operation === 'move') {
-        result = 'copied_source_delete_failed';
-        detail = `目标副本已校验，但删除来源失败：${error.message}`;
-      } else {
-        result = 'failed'; detail = error.message;
-        if (destinationCreated && !destinationVerified) {
-          try { await unlink(destinationPath); detail += '；已清理未完成目标'; }
-          catch (cleanupError) { detail += `；清理未完成目标失败：${cleanupError.message}`; }
-        }
-      }
-    }
-    const executedUtc = new Date().toISOString(); const record = { executed_utc: executedUtc, operation: approval.operation, source_path: sourcePath,
-      destination_path: destinationPath, sha256: plan.sha256, result, detail };
-    await logHandle.write(`${JSON.stringify(record)}\n`); await csvHandle.write(csv([executedUtc, approval.operation, sourcePath, destinationPath, plan.sha256, result, detail]));
-    counts.set(result, (counts.get(result) ?? 0) + 1);
-  }
-  await logHandle.close(); await csvHandle.close();
-  await writeFile(join(batchDirectory, `execution-summary-${executionRunId}.json`), JSON.stringify({ plan_run_id: approval.plan_run_id, executed_utc: new Date().toISOString(),
-    plan_sha256: actualPlanHash, records_read: recordsRead, result_counts: [...counts.entries()].map(([result, count]) => ({ result, count })) }, null, 2), 'utf8');
+      if (plan.operation !== approved.operation) throw new Error('单条计划的操作类型与批准文件不一致');
+      if (!isAbsolute(plan.source_path) || !isAbsolute(plan.destination_path) || !validatePlanPath(sourcePath, destinationPath, destinationRoot)) throw new Error('目标路径越界');
+    },
+  });
   console.log(`整理计划执行完成：${logPath}`);
 }
-
 if (execute) await executePlan(); else await previewPlan();
+}
+
+if (isMainModule(import.meta.url)) await main();

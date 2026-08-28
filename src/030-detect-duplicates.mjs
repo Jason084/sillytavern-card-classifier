@@ -12,12 +12,14 @@ import { basename, dirname, extname, join, resolve } from 'node:path';
 import { readJsonlRecords } from './lib/read-jsonl.mjs';
 import { cardHashOf } from './lib/card-hash.mjs';
 import { createBatchDirectory } from './lib/run-files.mjs';
+import { isMainModule } from './lib/cli.mjs';
+import { csv } from './lib/report-io.mjs';
 
+export async function main(args = process.argv.slice(2)) {
 const root = resolve(import.meta.dirname, '..');
 const scansDirectory = join(root, 'reports', 'scans');
-const reportsDirectory = resolve(process.argv[3] ?? join(root, 'reports', 'duplicates'));
+const reportsDirectory = resolve(args[1] ?? join(root, 'reports', 'duplicates'));
 
-function csv(values) { return values.map((value) => `"${String(value ?? '').replaceAll('"', '""')}"`).join(',') + '\n'; }
 function normalized(value) { return String(value ?? '').normalize('NFKC').trim().toLocaleLowerCase('zh-CN'); }
 function add(map, key, value) { if (key) map.set(key, [...(map.get(key) ?? []), value]); }
 function distinct(items, key) { return new Set(items.map((item) => item[key]).filter(Boolean)); }
@@ -43,7 +45,7 @@ async function inputIndex(argument) {
   return info.isDirectory() ? join(path, 'index.jsonl') : path;
 }
 
-const indexPath = await inputIndex(process.argv[2]);
+const indexPath = await inputIndex(args[0]);
 await stat(indexPath);
 const { runId, batchDirectory } = await createBatchDirectory(reportsDirectory);
 const fileHashGroups = new Map(); const cardHashGroups = new Map();
@@ -96,3 +98,6 @@ await writeFile(join(batchDirectory, 'summary.json'), JSON.stringify({
   group_type_counts: countsToArray(typeCounts), files_are_unchanged: true,
 }, null, 2), 'utf8');
 console.log(`重复检测完成：${batchDirectory}`);
+}
+
+if (isMainModule(import.meta.url)) await main();

@@ -1,12 +1,14 @@
 import { createHash } from 'node:crypto';
 
 export const REFINEMENT_THRESHOLD = 100;
-export const REFINEMENT_SCOPE = 'fanwork-ip-and-special-groups-v1';
+export const LEGACY_REFINEMENT_SCOPE = 'fanwork-ip-and-special-groups-v1';
+export const REFINEMENT_SCOPE = 'fanwork-source-ip-and-special-groups-v2';
 export const FANWORK_PARENT = '同人';
 export const EXCLUDED_PARENT = '排除';
 export const UNRESOLVED_PARENT = '未分类';
 export const NONSTANDARD_PARENT = '标准外';
 export const FALLBACK_SUBCATEGORY = '其他';
+export const FANWORK_SOURCE_CATEGORIES = Object.freeze(['游戏', '动画与漫画', '小说', '影视', '虚拟主播与网络人物', '其他']);
 
 const WINDOWS_RESERVED = /^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/iu;
 
@@ -26,6 +28,15 @@ export function parentCategory(record, allowedCategories) {
 
 export function refinementGroupId(parent, cardSha256) {
   return createHash('sha256').update(`${parent}\0${cardSha256}`).digest('hex');
+}
+
+export function fanworkSourceGroupId(ipName) {
+  return createHash('sha256').update(`fanwork-source\0${String(ipName ?? '').normalize('NFKC').trim()}`).digest('hex');
+}
+
+export function normalizeFanworkSourceCategory(value) {
+  const output = String(value ?? '').normalize('NFKC').trim();
+  return FANWORK_SOURCE_CATEGORIES.includes(output) ? output : null;
 }
 
 export function reasonText(record) {

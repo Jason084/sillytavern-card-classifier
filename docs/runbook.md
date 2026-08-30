@@ -2,6 +2,8 @@
 
 所有命令默认从仓库根目录的 PowerShell 运行。尖括号内容是占位符，执行前必须替换。当前状态和权威批次见 [status.md](./status.md)。
 
+不得把真实 API 密钥写入仓库、命令脚本或报告；只在当前 PowerShell 进程临时设置 `MODEL_API_KEY`，使用后立即移除。任何曾以明文写入工作区的密钥都应在服务端撤销并轮换。
+
 ## 风险标记
 
 | 标记 | 含义 |
@@ -38,6 +40,8 @@ Get-Content .\reports\refinements\<070批次>\run.json
 Get-Content .\reports\refinement-plans\<计划批次>\summary.json
 Get-ChildItem .\reports\refinement-plans\<计划批次>\execution-summary-*.json |
   Get-Content
+Get-Content .\reports\fanwork-ip-merge-candidates\<090批次>\summary.json
+Get-Content .\reports\fanwork-ip-merge-candidates\<090批次>\approval.json
 ```
 
 060 和 080 的原始 `summary.json` 是计划生成时的不可变摘要，其中 `executed: false` 只表示生成摘要时尚未执行。执行脚本不会回写它；是否执行、执行了哪份计划以及各结果数量，必须以同批次的 `execution-summary-*.json` 为准，并核对两者的 `plan_sha256` 一致。
@@ -146,9 +150,9 @@ node .\src\060-organize-character-cards.mjs --execute `
 
 ## 第七阶段：二次分类
 
-> **外部模型 + 报告写入：** 预检会创建批次；真实续跑只会把`同人`类别中裁剪后的角色卡字段发送到外部模型。必须先取得明确授权。`排除`、`未分类`和`标准外`只使用本地确定性规则；其他普通一级类别不调用模型，也不生成二级目录。
+> **外部模型 + 报告写入：** 预检会创建批次；真实续跑会把`同人`类别中裁剪后的角色卡字段，以及来源类型阶段中的 IP 目录名发送到外部模型。必须先取得明确授权。`排除`、`未分类`和`标准外`只使用本地确定性规则；其他普通一级类别不调用模型，也不生成二级目录。
 
-当前范围标识为 `fanwork-ip-and-special-groups-v1`：文件数严格大于 100 的`同人`按作品或系列 IP 细分，三个特殊一级类别超过同一阈值时只生成整理辅助分组。现存的 `20260823T150516348Z-9069445a` 预检批次属于旧版通用细分方案，缺少当前范围标识，不能续跑。
+已完成的权威批次范围为 `fanwork-ip-and-special-groups-v1`。当前工作区源码正在升级到 `fanwork-source-ip-and-special-groups-v2`，会为同人 IP 增加固定来源类型；但尚无完成的权威 v2 批次，且两项旧 070 测试尚未同步。不要用当前源码续跑 v1 批次，也不要在测试恢复前将新 v2 结果作为权威输入。
 
 当前 070 默认使用每批 10 个唯一内容、并发 5，并以 6.5 秒全局间隔控制发包。若上游以 HTTP 200 包装内容过滤拒绝，程序会对同批内容仅追加一次名称、作者和标签元数据重试，并在检查点和最终结果中记录 `model_input_profile=metadata`；普通非 JSON 响应仍按模型错误处理。调用次数有限时应显式设置 `MODEL_MAX_HTTP_REQUESTS` 硬上限。
 
@@ -197,3 +201,52 @@ node .\src\080-organize-refined-character-cards.mjs --execute `
 ```
 
 执行会再次核对批准文件、计划哈希、来源哈希和目标边界，拒绝覆盖已有目标。
+
+## 第九阶段：同人 IP 归并候选
+
+> **报告写入：** 090 只读取完整 070 结果和已经完整执行的对应 080 计划，不调用外部模型、不读取角色卡正文，也不修改 `data/`。它只生成供人工审核的候选映射。
+
+三个位置参数依次是“完整 070 批次或结果、已执行的对应 080 批次或计划、报告根目录”：
+
+```powershell
+node .\src\090-propose-fanwork-ip-merges.mjs `
+  .\reports\refinements\<完整070批次> `
+  .\reports\refinement-plans\<已执行080批次> `
+  .\reports\fanwork-ip-merge-candidates
+```
+
+省略参数时，脚本会分别查找最新的完整 070 批次和最新的完整执行 080 批次，但正式核实时应始终写明批次路径。脚本会交叉校验范围、来源路径、070 和 080 文件哈希、逐条目录与选择标记，以及 080 执行汇总。
+
+输出包括：
+
+- `candidates.csv` 和 `candidates.jsonl`：当前目录、规范名称、建议目标、文件数和归并依据。
+- `fanwork-index.jsonl`：逐卡保留原目录、规范名称、建议目标和文件哈希。
+- `summary.json`：门槛、目录统计、建议目标统计和报告哈希。
+- `approval.json`：默认 `approved: false`；可记录人工覆盖，但当前没有执行归并的入口。
+
+不足 6 张的目录只有在输入自带唯一来源类型时，才会建议进入对应的动漫、游戏、小说或影视长尾桶；当前 v1 权威结果没有该字段，因此这类候选会暂列`待确认原作`。不得仅因候选已生成就批准整个映射，必须先检查该桶规模并补足来源类型或人工覆盖。6–9 张目录标记为门槛待审核，10 张及以上才满足独立目录最低门槛。
+
+## 第十阶段：批准映射后的完整复制计划
+
+> **生成计划会读取并计算现有二次分类副本的哈希；`--execute` 会复制文件。** 100 只允许 `copy`，目标必须是新的空目录。090 候选获批不等于 100 文件计划获批，两次批准相互独立。
+
+四个位置参数依次是“已批准的 090 批次、当前二次分类来源、新目标目录、计划报告根目录”：
+
+```powershell
+node .\src\100-organize-merged-character-cards.mjs `
+  .\reports\fanwork-ip-merge-candidates\<已批准090批次> `
+  .\data\二次分类角色卡 `
+  .\data\同人IP归并角色卡 `
+  .\reports\fanwork-ip-merge-plans
+```
+
+脚本会核对 090 候选及其批准文件、原 080 计划和执行证据，并重新计算全部来源文件哈希。输出 `plan.jsonl`、`plan.csv`、`summary.json` 和默认 `approved: false` 的 `approval.json`。非同人目录保持原结构，同人目录使用批准目标；归并后出现同名文件时使用内容哈希后缀，不覆盖任何文件。
+
+人工核对计划和空目标目录后，才可单独批准并执行：
+
+```powershell
+node .\src\100-organize-merged-character-cards.mjs --execute `
+  .\reports\fanwork-ip-merge-plans\<已批准计划批次>
+```
+
+执行会再次确认候选、候选批准、080 来源计划和 100 计划均未变化，并拒绝复用非空目标目录。执行结束后必须核对 15,134 个文件、2,250 个同人文件以及来源和目标 SHA-256 多重集合一致。

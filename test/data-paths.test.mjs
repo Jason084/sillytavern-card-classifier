@@ -13,6 +13,6 @@ test('项目内旧角色卡目录映射到迁移后的目录', () => {
     currentProjectDataPath(root, join(root, 'data', '角色卡', '已分类', '同人', '卡片.png')),
     join(root, 'data', '已分类角色卡', '同人', '卡片.png'),
   );
-  const externalPath = resolve('D:\\收藏', '未分类', '卡片.png');
+  const externalPath = resolve('D:\\Cards', 'Unsorted', 'card.png');
   assert.equal(currentProjectDataPath(root, externalPath), externalPath);
 });

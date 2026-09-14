@@ -43,6 +43,8 @@ npm run check
 
 `npm run check` runs syntax checks, the automated tests, Markdown-link checks, public-content checks, and classification-policy translation checks. It uses temporary directories and local fixtures; it does not process a real collection or call an external model.
 
+Model batch size is controlled by `MODEL_BATCH_SIZE`; the repository's example configuration defaults to 10 cards per batch. See the [runbook](./docs/runbook.md) for phase-specific defaults, overrides, and resume constraints.
+
 For real collection operations, copy commands from the [runbook](./docs/runbook.md) and read the adjacent risk notes first. Do not run collection, classification, organization, or model commands until you understand their inputs, outputs, and approval requirements.
 
 ## Documentation

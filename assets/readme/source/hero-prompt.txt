@@ -1,0 +1,10 @@
+Use case: stylized-concept
+Asset type: transparent raster subject layer for a GitHub README hero
+Primary request: create a project-specific "tavern archive keeper" who visually explains a local tool that audits, classifies, and safely copies SillyTavern character cards.
+Input image: the supplied ST pattern logo is a visual identity reference only. Use its near-black, deep tavern-red, white, and branching pattern language; do not redraw its letters.
+Subject: one gender-neutral innkeeper-archivist, calmly sorting a fan of character-card portraits into a compact wooden pigeonhole archive while checking an audit ledger. Include a brass approval stamp and thin red branching cords from cards to drawers.
+Composition: isolated landscape-friendly cluster on the right, facing slightly left, with generous title space on the left; complete head and hands.
+Style: refined dark-fantasy editorial illustration; warm tavern candlelight; trustworthy and methodical.
+Palette: near-black charcoal, deep ST red #C51D24, parchment ivory, aged brass, dark walnut.
+Constraints: no readable text, letters, numbers, logo, watermark, weapons, sexualized design, generic cyberpunk effects, or full-room background.
+Production note: the final generation used a flat #00FF00 chroma-key background because the built-in transparent export returned a baked checkerboard. The key was removed locally and the alpha edges were validated before composition.

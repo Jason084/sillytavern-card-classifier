@@ -1,0 +1,24 @@
+# Character cards, generated reports, and local work
+/data/
+/reports/
+/work/
+/png/
+/非角色卡/
+/SillyInnkeeper-main/
+
+# Secrets and local configuration
+.env
+.env.*
+!.env.example
+*.key
+*.pem
+
+# Dependencies, build output, and editor files
+node_modules/
+dist/
+coverage/
+.cache/
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

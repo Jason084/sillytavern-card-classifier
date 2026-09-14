@@ -5,7 +5,7 @@
 > **后续状态注记（2026-08-28）**：下文“第六阶段尚未启动”只描述本快照形成时的状态。第六阶段计划 `20260822T131941624Z-0ab16690` 后来已获批准并执行；同批次的 `execution-summary-20260822T132041875Z-58d8b962.json` 记录 15,134 条计划全部为 `copied`。本注记只补充后续事实，不改写当时的交接结论。
 
 更新日期：2026-08-22
-项目目录：`C:\ancode\Claude Code\test\角色卡分类`
+项目目录：本仓库根目录
 交接范围：第五阶段全量分类（05）、第一次模型复核（051）、第二次模型复核（052）
 
 ## 一、当前结论
@@ -46,7 +46,7 @@
 | 扫描记录 | 15,795 |
 | 有效角色卡文件 | 15,134 |
 | 唯一角色卡内容 | 14,867 |
-| 模型接口 | `https://aibh.cc/v1` |
+| 模型接口 | `https://provider.example/v1`（历史地址已脱敏） |
 | 实际模型 ID | `v4 flash` |
 
 接口别名 `flash` 会返回 `invalid model`，不要改回该别名。
@@ -61,7 +61,7 @@
 |---|---|
 | 脚本 | `src/050-classify-character-cards.mjs` |
 | 批次 | `reports/classifications/20260822T090050564Z-ecf9b34a` |
-| 提示词版本 | `classification-v6-aibh-unrestricted-prefix` |
+| 提示词版本 | `classification-v6-redacted-prefix` |
 | 批量 | 30 |
 | 实际并发 | 5 |
 | 最多重试 | 2 |
@@ -88,7 +88,7 @@
 |---|---|
 | 脚本 | `src/051-classify-character-cards.mjs` |
 | 批次 | `reports/classification-reviews/20260822T112558723Z-741b9c83` |
-| 提示词版本 | `classification-review-v1-aibh-batch10` |
+| 提示词版本 | `classification-review-v1-batch10-redacted-service` |
 | 目标 | 05 中全部 `needs_review=true` |
 | 目标文件/唯一内容 | 4,045 / 3,949 |
 | 批量/并发/最多重试 | 10 / 5 / 2 |
@@ -118,7 +118,7 @@
 |---|---|
 | 脚本 | `src/052-classify-character-cards.mjs` |
 | 批次 | `reports/classification-reviews-052/20260822T121236978Z-f3d98577` |
-| 提示词版本 | `classification-review-v2-aibh-batch2` |
+| 提示词版本 | `classification-review-v2-batch2-redacted-service` |
 | 目标 | 051 已完成且仍为 `review` 的记录 |
 | 目标文件/唯一内容 | 510 / 501 |
 | 批量/并发/最多重试 | 2 / 2 / 3 |
@@ -332,7 +332,7 @@ node .\src\060-organize-character-cards.mjs `
 
 ## 十一、安全交接
 
-- API Sub Key 没有写入代码、配置、报告、日志或本文档。
+- API 密钥没有写入代码、配置、报告、日志或本文档。
 - Key 曾由用户直接发送在聊天记录中，因此即使本地环境已经清除，也建议任务彻底结束后在服务端撤销并重新生成。
 - 原始网盘目录保持只读；本轮只读取项目工作副本和报告。
 - 05、051、052 都没有执行文件整理、移动或删除。

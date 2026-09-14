@@ -20,14 +20,9 @@ This project provides a Windows-first, auditable pipeline for collecting, scanni
 
 ## Current status
 
-As of **2026-09-14**, the verified workflow has completed scanning, primary classification, fan-card refinement, IP consolidation, and classification-tag writing:
+As of **2026-09-14**, the repository contains the verified workflow for scanning, primary classification, selective fanwork refinement, IP consolidation, and classification-tag writing. The maintainer's private validation evidence is documented separately; its character cards and generated reports are not part of this repository.
 
-- **15,795** files were scanned and **15,134** valid character cards were indexed.
-- Primary classification contains **12,754** common-category cards, **2,075** excluded cards, and **305** cards awaiting manual review.
-- All **15,134** cards have classified copies. Tag writing produced **15,133** new tagged copies and **1** unchanged copy, adding **17,150** tags in total.
-- Remaining work is manual quality sampling; the current 070 v2 source capability has no completed authoritative external-model batch.
-
-See [current status](./docs/status.md) for authoritative batch metadata, hashes, completion records, risks, and next steps.
+The remaining quality work is human sampling, and the current 070 v2 source capability has no completed authoritative external-model batch. See [current status](./docs/status.md) for software capabilities and limitations, or the [maintainer validation case study](./docs/validation-case-study.md) for traceability details.
 
 ## Quick start
 
@@ -50,6 +45,7 @@ For real collection operations, copy commands from the [runbook](./docs/runbook.
 ## Documentation
 
 - [Current status](./docs/status.md): authoritative batches, hashes, completion status, risks, and blockers
+- [Maintainer validation case study](./docs/validation-case-study.md): private-run counts, hashes, batch-relative paths, conclusions, and limitations
 - [System architecture and data flow](./docs/architecture.md): phase responsibilities and input/output relationships
 - [Runbook](./docs/runbook.md): verified commands, parameters, and side-effect warnings
 - [Classification policy entry point](./docs/classification-policy.md): how code uses the sole authoritative policy

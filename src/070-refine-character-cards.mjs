@@ -9,7 +9,7 @@ import { open, readFile, readdir, stat, writeFile } from 'node:fs/promises';
 import { basename, dirname, join, resolve } from 'node:path';
 import { createInterface } from 'node:readline';
 import { readJsonlRecords } from './lib/read-jsonl.mjs';
-import { cardModelInput, CLASSIFICATION_SYSTEM_PREFIX, compact, createRequestBudget, hasSemanticContent, modelSettingsFromEnv, requestModelJson, runWorkers, summarizeRequestEvents } from './lib/model-client.mjs';
+import { cardModelInput, CLASSIFICATION_SYSTEM_PREFIX, compact, createRequestBudget, hasSemanticContent, modelSettingsFromEnv, requestModelJson, runWorkers, summarizeRequestEvents, validateModelEndpoint } from './lib/model-client.mjs';
 import { createBatchDirectory, sha256File } from './lib/run-files.mjs';
 import {
   EXCLUDED_PARENT, FALLBACK_SUBCATEGORY, FANWORK_PARENT, FANWORK_SOURCE_CATEGORIES, LEGACY_REFINEMENT_SCOPE,
@@ -37,7 +37,7 @@ for (let index = 0; index < args.length; index += 1) {
   else modelArgs.push(argument);
 }
 if (sourceRefinementsArgument === '') throw new Error('--from-refinements 必须指定已完成的 070 批次或 refinements.jsonl');
-const { positionals, resumeArgument, dryRun } = parseModelPhaseArguments(modelArgs, '--resume 必须指定已有二次分类批次目录');
+const { positionals, resumeArgument, dryRun, allowRemoteModel } = parseModelPhaseArguments(modelArgs, '--resume 必须指定已有二次分类批次目录');
 if (resumeArgument && sourceRefinementsArgument != null) throw new Error('--resume 不能与 --from-refinements 同时使用');
 
 async function fileFromArgument(argument, fileName) { const path = resolve(argument); const info = await stat(path); return info.isDirectory() ? join(path, fileName) : path; }
@@ -117,7 +117,9 @@ async function categorizeFanworkSources(ipNames, { batchDirectory: directory, mo
   return { completed, pending, failed, requestBatches };
 }
 
-const modelSettings = modelSettingsFromEnv(phaseDefaults);
+const modelSettings = modelSettingsFromEnv({ ...phaseDefaults, allowRemoteModel });
+validateModelEndpoint(modelSettings);
+const remoteModelFlag = modelSettings.allowRemoteModel ? ' --allow-remote-model' : '';
 const httpLimit = positiveIntegerFromEnv('MODEL_MAX_HTTP_REQUESTS', 2_000);
 
 async function refineExistingResults(existingRun = null) {
@@ -157,13 +159,13 @@ async function refineExistingResults(existingRun = null) {
   try { sourceResult = await categorizeFanworkSources(ipNames, { batchDirectory: directory, modelSettings, budget, usageAppender, dryRun }); }
   catch (error) {
     await usageAppender.close();
-    await writeFile(join(directory, 'fatal-error.json'), JSON.stringify({ generated_utc: new Date().toISOString(), error: compact(error.message, 500), resume_command: `node .\\src\\070-refine-character-cards.mjs --resume="${directory}"` }, null, 2), 'utf8');
+    await writeFile(join(directory, 'fatal-error.json'), JSON.stringify({ generated_utc: new Date().toISOString(), error: compact(error.message, 500), resume_command: `node .\\src\\070-refine-character-cards.mjs --resume="${directory}"${remoteModelFlag}` }, null, 2), 'utf8');
     await writeFile(join(directory, 'run.json'), JSON.stringify({ ...metadata, status: 'interrupted', updated_utc: new Date().toISOString(), http_requests_total: budget.used }, null, 2), 'utf8');
     throw new Error(`${error.message}。检查点已保存：${directory}`);
   }
   if (dryRun) {
     await usageAppender.close();
-    console.log(JSON.stringify({ mode: 'dry-run', batch_directory: directory, refinement_scope: REFINEMENT_SCOPE, input_mode: 'existing_refinements', records: records.length, unique_ip_directories: new Set(ipNames).size, source_categories: FANWORK_SOURCE_CATEGORIES, completed_from_checkpoint: sourceResult.completed.size, pending: sourceResult.pending.length, run_command: `node .\\src\\070-refine-character-cards.mjs --resume="${directory}"` }, null, 2));
+    console.log(JSON.stringify({ mode: 'dry-run', batch_directory: directory, refinement_scope: REFINEMENT_SCOPE, input_mode: 'existing_refinements', records: records.length, unique_ip_directories: new Set(ipNames).size, source_categories: FANWORK_SOURCE_CATEGORIES, completed_from_checkpoint: sourceResult.completed.size, pending: sourceResult.pending.length, run_command: `node .\\src\\070-refine-character-cards.mjs --resume="${directory}"${remoteModelFlag}` }, null, 2));
     return;
   }
   await usageAppender.close();
@@ -266,7 +268,7 @@ const initialBatches = chunks(pending, modelSettings.batchSize);
 const usagePath = join(batchDirectory, 'usage.jsonl'); const oldUsage = await readJsonl(usagePath); const historicalUsage = summarizeRequestEvents(oldUsage);
 const deterministicFiles = fileContexts.filter((item) => item.selected && item.mode === 'deterministic').length;
 if (dryRun) {
-  console.log(JSON.stringify({ mode: 'dry-run', batch_directory: batchDirectory, refinement_scope: REFINEMENT_SCOPE, records: classificationRecords.length, threshold: REFINEMENT_THRESHOLD, parent_counts: [...parentCounts].sort((a, b) => b[1] - a[1]).map(([parent, count]) => ({ parent, count, refinement_mode: refinementMode(parent), selected: selectedParents.has(parent) })), selected_parents: [...selectedParents], selected_parent_count: selectedParents.size, deterministic_file_records: deterministicFiles, model_unique_groups: modelGroups.size, unique_without_semantic_content: withoutSemantic.size, unique_completed_from_checkpoint: completed.size, unique_pending: pending.length, initial_request_batches: initialBatches.length, fanwork_source_categories: FANWORK_SOURCE_CATEGORIES, source_category_pass: '作品/IP 分类完成后在同一 070 批次内执行', model: modelSettings.model, batch_size: modelSettings.batchSize, concurrency: modelSettings.concurrency, http_requests_reserved: historicalUsage.requests, http_request_limit: httpLimit, run_command: `node .\\src\\070-refine-character-cards.mjs --resume="${batchDirectory}"` }, null, 2));
+  console.log(JSON.stringify({ mode: 'dry-run', batch_directory: batchDirectory, refinement_scope: REFINEMENT_SCOPE, records: classificationRecords.length, threshold: REFINEMENT_THRESHOLD, parent_counts: [...parentCounts].sort((a, b) => b[1] - a[1]).map(([parent, count]) => ({ parent, count, refinement_mode: refinementMode(parent), selected: selectedParents.has(parent) })), selected_parents: [...selectedParents], selected_parent_count: selectedParents.size, deterministic_file_records: deterministicFiles, model_unique_groups: modelGroups.size, unique_without_semantic_content: withoutSemantic.size, unique_completed_from_checkpoint: completed.size, unique_pending: pending.length, initial_request_batches: initialBatches.length, fanwork_source_categories: FANWORK_SOURCE_CATEGORIES, source_category_pass: '作品/IP 分类完成后在同一 070 批次内执行', model: modelSettings.model, batch_size: modelSettings.batchSize, concurrency: modelSettings.concurrency, http_requests_reserved: historicalUsage.requests, http_request_limit: httpLimit, run_command: `node .\\src\\070-refine-character-cards.mjs --resume="${batchDirectory}"${remoteModelFlag}` }, null, 2));
   return;
 }
 
@@ -321,7 +323,7 @@ catch (error) { workerError = error; }
 await checkpointQueue; await checkpointHandle.close();
 if (workerError) {
   await usageAppender.close();
-  await writeFile(join(batchDirectory, 'fatal-error.json'), JSON.stringify({ generated_utc: new Date().toISOString(), error: compact(workerError.message, 500), resume_command: `node .\\src\\070-refine-character-cards.mjs --resume="${batchDirectory}"` }, null, 2), 'utf8');
+  await writeFile(join(batchDirectory, 'fatal-error.json'), JSON.stringify({ generated_utc: new Date().toISOString(), error: compact(workerError.message, 500), resume_command: `node .\\src\\070-refine-character-cards.mjs --resume="${batchDirectory}"${remoteModelFlag}` }, null, 2), 'utf8');
   await writeFile(join(batchDirectory, 'run.json'), JSON.stringify({ ...runMetadata, status: 'interrupted', updated_utc: new Date().toISOString(), http_requests_total: budget.used }, null, 2), 'utf8');
   throw new Error(`${workerError.message}。检查点已保存：${batchDirectory}`);
 }
@@ -336,7 +338,7 @@ let sourceResult;
 try { sourceResult = await categorizeFanworkSources(fanworkIpNames, { batchDirectory, modelSettings, budget, usageAppender, dryRun: false }); }
 catch (error) {
   await usageAppender.close();
-  await writeFile(join(batchDirectory, 'fatal-error.json'), JSON.stringify({ generated_utc: new Date().toISOString(), error: compact(error.message, 500), resume_command: `node .\\src\\070-refine-character-cards.mjs --resume="${batchDirectory}"` }, null, 2), 'utf8');
+  await writeFile(join(batchDirectory, 'fatal-error.json'), JSON.stringify({ generated_utc: new Date().toISOString(), error: compact(error.message, 500), resume_command: `node .\\src\\070-refine-character-cards.mjs --resume="${batchDirectory}"${remoteModelFlag}` }, null, 2), 'utf8');
   await writeFile(join(batchDirectory, 'run.json'), JSON.stringify({ ...runMetadata, status: 'interrupted', updated_utc: new Date().toISOString(), http_requests_total: budget.used }, null, 2), 'utf8');
   throw new Error(`${error.message}。来源类型检查点已保存：${batchDirectory}`);
 }
@@ -364,7 +366,7 @@ for (const context of fileContexts) {
 await refinementsHandle.close(); await reviewHandle.close(); await errorsHandle.close(); await sourceErrorsHandle.close(); await indexErrorsHandle.close();
 const taxonomy = [...selectedParents].sort((a, b) => a.localeCompare(b, 'zh-CN')).map((parent) => ({ parent, file_count: parentCounts.get(parent), subcategories: [...subcategoryCounts].filter(([key]) => key.startsWith(`${parent}\0`)).map(([key, count]) => { const parts = key.split('\0'); return parent === FANWORK_PARENT ? { fanwork_source_category: parts[1], subcategory: parts[2], count } : { subcategory: parts[1], count }; }).sort((a, b) => b.count - a.count || a.subcategory.localeCompare(b.subcategory, 'zh-CN')) }));
 await writeFile(join(batchDirectory, 'taxonomy.json'), JSON.stringify({ generated_utc: new Date().toISOString(), refinement_scope: REFINEMENT_SCOPE, threshold: REFINEMENT_THRESHOLD, levels_added: { fanwork: 2, special: 1 }, fanwork_source_categories: FANWORK_SOURCE_CATEGORIES, ip_names_preserved: true, parents: taxonomy }, null, 2), 'utf8');
-const summary = { run_id: runId, generated_utc: new Date().toISOString(), refinement_scope: REFINEMENT_SCOPE, source_classifications: classificationsPath, source_classifications_sha256: classificationsSha256, source_index: indexPath, source_index_sha256: indexSha256, source_file_records: classificationRecords.length, threshold: REFINEMENT_THRESHOLD, levels_added: { fanwork: 2, special: 1 }, fanwork_source_categories: FANWORK_SOURCE_CATEGORIES, parent_counts: [...parentCounts].sort((a, b) => b[1] - a[1]).map(([parent, count]) => ({ parent, count, refinement_mode: refinementMode(parent) })), selected_parents: [...selectedParents], selected_parent_count: selectedParents.size, selected_file_records: fileContexts.filter((item) => item.selected).length, unselected_file_records: fileContexts.filter((item) => !item.selected).length, unique_model_groups: modelGroups.size, unique_completed_from_checkpoint: completed.size, unique_completed_with_metadata: [...completed.values()].filter((item) => item.model_input_profile === 'metadata').length, unique_without_semantic_content: withoutSemantic.size, unique_model_failed_with_fallback: failed.size, fallback_file_records: fallbackFiles, unique_ip_directories: new Set(fanworkIpNames).size, source_category_completed_from_checkpoint: sourceResult.completed.size, source_category_failed_with_fallback: sourceResult.failed.size, source_category_fallback_file_records: sourceCategoryFallbackFiles, deterministic_file_records: deterministicFiles, http_requests_total: budget.used, http_requests_this_process: budget.usedThisProcess, model_request_batches_this_process: requestBatches + sourceResult.requestBatches, api_base_url: modelSettings.baseUrl, model_version: modelSettings.model, prompt_version: promptVersion, source_prompt_version: sourcePromptVersion, batch_size: modelSettings.batchSize, concurrency: modelSettings.concurrency, max_attempts: modelSettings.maxAttempts, max_output_tokens: modelSettings.maxOutputTokens, unique_failed_or_incomplete: 0, status: 'complete', resume_command: `node .\\src\\070-refine-character-cards.mjs --resume="${batchDirectory}"` };
+const summary = { run_id: runId, generated_utc: new Date().toISOString(), refinement_scope: REFINEMENT_SCOPE, source_classifications: classificationsPath, source_classifications_sha256: classificationsSha256, source_index: indexPath, source_index_sha256: indexSha256, source_file_records: classificationRecords.length, threshold: REFINEMENT_THRESHOLD, levels_added: { fanwork: 2, special: 1 }, fanwork_source_categories: FANWORK_SOURCE_CATEGORIES, parent_counts: [...parentCounts].sort((a, b) => b[1] - a[1]).map(([parent, count]) => ({ parent, count, refinement_mode: refinementMode(parent) })), selected_parents: [...selectedParents], selected_parent_count: selectedParents.size, selected_file_records: fileContexts.filter((item) => item.selected).length, unselected_file_records: fileContexts.filter((item) => !item.selected).length, unique_model_groups: modelGroups.size, unique_completed_from_checkpoint: completed.size, unique_completed_with_metadata: [...completed.values()].filter((item) => item.model_input_profile === 'metadata').length, unique_without_semantic_content: withoutSemantic.size, unique_model_failed_with_fallback: failed.size, fallback_file_records: fallbackFiles, unique_ip_directories: new Set(fanworkIpNames).size, source_category_completed_from_checkpoint: sourceResult.completed.size, source_category_failed_with_fallback: sourceResult.failed.size, source_category_fallback_file_records: sourceCategoryFallbackFiles, deterministic_file_records: deterministicFiles, http_requests_total: budget.used, http_requests_this_process: budget.usedThisProcess, model_request_batches_this_process: requestBatches + sourceResult.requestBatches, api_base_url: modelSettings.baseUrl, model_version: modelSettings.model, prompt_version: promptVersion, source_prompt_version: sourcePromptVersion, batch_size: modelSettings.batchSize, concurrency: modelSettings.concurrency, max_attempts: modelSettings.maxAttempts, max_output_tokens: modelSettings.maxOutputTokens, unique_failed_or_incomplete: 0, status: 'complete', resume_command: `node .\\src\\070-refine-character-cards.mjs --resume="${batchDirectory}"${remoteModelFlag}` };
 await writeFile(join(batchDirectory, 'summary.json'), JSON.stringify(summary, null, 2), 'utf8'); await writeFile(join(batchDirectory, 'run.json'), JSON.stringify({ ...runMetadata, status: 'complete', updated_utc: new Date().toISOString(), http_requests_total: budget.used }, null, 2), 'utf8');
 console.log(`二次分类完成：${batchDirectory}`);
 }

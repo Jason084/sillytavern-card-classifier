@@ -141,6 +141,8 @@ Remove-Item Env:MODEL_API_KEY
 
 新批次使用阶段默认值；若设置环境变量，则该值覆盖对应默认值。续跑时源码会校验模型名、API 基础地址、提示词版本、`MODEL_BATCH_SIZE`、`MODEL_MAX_ATTEMPTS`、`MODEL_MAX_OUTPUT_TOKENS` 以及输入和规则哈希。原批次已绑定 `MODEL_MAX_HTTP_REQUESTS` 时，续跑必须设置不低于原值；051/052 新批次未设置该变量时不绑定上限。并发、请求间隔、429 退避、置信度阈值和 API 密钥不写入批次元数据，不是续跑匹配项。分类标准或输入内容发生任何字节变化后，不要用变化后的文件续跑原批次。
 
+模型端点传输与授权边界：`localhost`、IPv4 `127.0.0.0/8` 和 IPv6 `::1`（包括 IPv4-mapped loopback）可使用 HTTP；非本地端点必须使用 HTTPS，并在每次 050–052 或 070 的调用（包括 `--dry-run` 和 `--resume`）中显式加入 `--allow-remote-model`。非本地 HTTP 始终拒绝，续跑不会继承或绕过该授权。
+
 ## 第六阶段：一级整理
 
 > **生成计划只写报告；`--execute` 会写文件。** 060 默认计划操作为 `copy`，但也支持 `--operation=move`。`move` 会在复制并校验后删除工作副本来源，风险显著更高。

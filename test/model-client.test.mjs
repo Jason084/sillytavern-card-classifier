@@ -3,7 +3,7 @@ import { createServer } from 'node:http';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 import {
-  ModelBudgetExceededError, ModelContentFilterError, cardModelInput, createRequestBudget, hasSemanticContent, modelSettingsFromEnv,
+  ModelBudgetExceededError, ModelContentFilterError, cardModelInput, createRequestBudget, hasSemanticContent, isLocalModelEndpoint, modelSettingsFromEnv,
   parseModelJson, requestModelJson, summarizeRequestEvents,
 } from '../src/lib/model-client.mjs';
 
@@ -23,6 +23,59 @@ test('模型分类输入覆盖决定整体语义的扩展字段', () => {
   assert.deepEqual(input.alternate_greetings, ['备用开场']);
   assert(input.character_book.includes('世界书语义'));
   assert.equal(hasSemanticContent(input), true);
+});
+
+test('本地端点判定覆盖 loopback 形式', () => {
+  for (const endpoint of ['http://localhost/v1', 'http://127.0.0.1/v1', 'http://127.42.0.1/v1', 'http://[::1]/v1', 'http://[::ffff:127.42.0.1]/v1']) {
+    assert.equal(isLocalModelEndpoint(endpoint), true, endpoint);
+  }
+  assert.equal(isLocalModelEndpoint('https://provider.example/v1'), false);
+  assert.equal(isLocalModelEndpoint('http://192.0.2.1/v1'), false);
+});
+
+test('模型端点仅允许本地 HTTP，远程 HTTPS 需要显式授权且拒绝不发请求', async () => {
+  let remoteRequests = 0;
+  const originalFetch = globalThis.fetch;
+  try {
+    await withServer((_request, response) => {
+      response.writeHead(200, { 'content-type': 'application/json' });
+      response.end(JSON.stringify({ choices: [{ message: { content: JSON.stringify({ local: true }) } }] }));
+    }, async (localUrl) => {
+      assert.deepEqual(await requestModelJson(settings(localUrl), [{ role: 'user', content: 'x' }]), { local: true });
+
+      globalThis.fetch = async () => {
+        remoteRequests += 1;
+        return new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify({ remote: true }) } }] }), {
+          status: 200, headers: { 'content-type': 'application/json' },
+        });
+      };
+      const deniedHttpBudget = createRequestBudget(1);
+      await assert.rejects(
+        requestModelJson(settings('http://203.0.113.10/v1/chat/completions'), [{ role: 'user', content: 'x' }], { budget: deniedHttpBudget }),
+        /非本地模型端点必须使用 HTTPS/u,
+      );
+      const deniedAuthorizedHttpBudget = createRequestBudget(1);
+      await assert.rejects(
+        requestModelJson(settings('http://203.0.113.10/v1/chat/completions', { allowRemoteModel: true }), [{ role: 'user', content: 'x' }], { budget: deniedAuthorizedHttpBudget }),
+        /非本地模型端点必须使用 HTTPS/u,
+      );
+      const deniedHttpsBudget = createRequestBudget(1);
+      await assert.rejects(
+        requestModelJson(settings('https://provider.example/v1/chat/completions'), [{ role: 'user', content: 'x' }], { budget: deniedHttpsBudget }),
+        /--allow-remote-model/u,
+      );
+      assert.equal(deniedHttpBudget.used, 0);
+      assert.equal(deniedAuthorizedHttpBudget.used, 0);
+      assert.equal(deniedHttpsBudget.used, 0);
+      assert.deepEqual(
+        await requestModelJson(settings('https://provider.example/v1/chat/completions', { allowRemoteModel: true }), [{ role: 'user', content: 'x' }]),
+        { remote: true },
+      );
+    });
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+  assert.equal(remoteRequests, 1);
 });
 
 async function withServer(handler, work) {

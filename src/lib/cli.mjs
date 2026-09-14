@@ -10,15 +10,17 @@ export function parseModelPhaseArguments(args, resumeError) {
   const positionals = [];
   let resumeArgument = null;
   let dryRun = false;
+  let allowRemoteModel = false;
   for (let index = 0; index < args.length; index += 1) {
     const argument = args[index];
     if (argument === '--dry-run') dryRun = true;
+    else if (argument === '--allow-remote-model') allowRemoteModel = true;
     else if (argument === '--resume') resumeArgument = args[++index] ?? '';
     else if (argument.startsWith('--resume=')) resumeArgument = argument.slice('--resume='.length);
     else positionals.push(argument);
   }
   if (resumeArgument === '') throw new Error(resumeError);
-  return { positionals, resumeArgument, dryRun };
+  return { positionals, resumeArgument, dryRun, allowRemoteModel };
 }
 
 export function parseOrganizationArguments(args, { allowOperation = false } = {}) {

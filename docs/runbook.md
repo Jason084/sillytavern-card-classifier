@@ -123,7 +123,23 @@ Remove-Item Env:MODEL_API_KEY
 
 051、052 同样支持 `--resume <批次>` 或 `--resume=<批次>`。续跑会校验模型配置、提示词版本、输入和规则哈希。规则文件发生任何字节变化后，不要用变化后的文件续跑原批次；受影响的当前批次见 [状态页](./status.md)。
 
-可选模型环境变量包括 `MODEL_API_BASE_URL`、`MODEL_NAME`、`MODEL_BATCH_SIZE`、`MODEL_CONCURRENCY`、`MODEL_MAX_ATTEMPTS`、`MODEL_MAX_OUTPUT_TOKENS` 和 `MODEL_MAX_HTTP_REQUESTS`。改变续跑批次绑定的设置会被拒绝。
+模型环境变量的用途、默认值和边界以当前源码为准：
+
+| 变量 | 默认值（按阶段） | 用途与边界 |
+|---|---|---|
+| `MODEL_API_BASE_URL` | 无 | 必填的 OpenAI 兼容基础地址；去掉末尾 `/` 后，若未包含 `/chat/completions` 会自动追加。 |
+| `MODEL_NAME` | 无 | 必填的模型 ID；空值不允许。 |
+| `MODEL_API_KEY` | 空 | 可选鉴权密钥；有值时作为 Bearer 凭据发送。无鉴权本地端点可留空。 |
+| `MODEL_CONFIDENCE_THRESHOLD` | `0.8` | 置信度阈值配置，允许 `0`–`1`（含边界）；当前响应契约不产生 `confidence`，实现不会用它改变分类判定。 |
+| `MODEL_BATCH_SIZE` | 050=`30`；051=`10`；052=`2`；070=`10` | 每次请求的角色卡数量；正整数（至少 `1`）。 |
+| `MODEL_CONCURRENCY` | 050=`1`；051=`5`；052=`2`；070=`5` | 并行请求工作数；正整数，最大 `10`。 |
+| `MODEL_MAX_ATTEMPTS` | 050=`2`；051=`2`；052=`3`；070=`2` | 单个请求的最多尝试次数；正整数，最大 `3`。 |
+| `MODEL_MAX_OUTPUT_TOKENS` | 050/051/052/070=`4096` | 发给模型的 `max_tokens`；正整数，无额外源码上限。 |
+| `MODEL_MIN_REQUEST_INTERVAL_MS` | 050/051/052=`0`；070=`6500` | 同一配置的请求最小间隔，单位毫秒；非负整数。 |
+| `MODEL_RATE_LIMIT_BACKOFF_MS` | 050/051/052=`5000`；070=`6500` | 收到 HTTP 429 时的退避基准，单位毫秒；正整数，并按尝试次数指数增长，且会尊重更长的 `Retry-After`。 |
+| `MODEL_MAX_HTTP_REQUESTS` | 050=`1300`；070=`2000`；051/052 未设置时无上限 | HTTP 请求硬上限，包含重试和拆分请求；设置时必须是正安全整数，额度耗尽会在发送前停止。 |
+
+新批次使用阶段默认值；若设置环境变量，则该值覆盖对应默认值。续跑时源码会校验模型名、API 基础地址、提示词版本、`MODEL_BATCH_SIZE`、`MODEL_MAX_ATTEMPTS`、`MODEL_MAX_OUTPUT_TOKENS` 以及输入和规则哈希。原批次已绑定 `MODEL_MAX_HTTP_REQUESTS` 时，续跑必须设置不低于原值；051/052 新批次未设置该变量时不绑定上限。并发、请求间隔、429 退避、置信度阈值和 API 密钥不写入批次元数据，不是续跑匹配项。分类标准或输入内容发生任何字节变化后，不要用变化后的文件续跑原批次。
 
 ## 第六阶段：一级整理
 

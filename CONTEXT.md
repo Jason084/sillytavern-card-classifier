@@ -1,25 +1,61 @@
-# Domain glossary
+# 角色卡分类
 
-[简体中文](./CONTEXT.zh-CN.md)
+本上下文描述角色卡收藏在审计、分类、复核与整理过程中的领域语言。术语用于区分逻辑内容、物理文件、建议结果和获准执行的操作。
 
-**Character card**: A logical character definition usable by a conversational system. One card can exist in several physical files.
+## Language
 
-**File record**: An auditable record for one physical file in a scan. It is not interchangeable with a character card.
+**角色卡**：
+承载一个可供对话系统使用的角色定义及相关内容的逻辑对象；同一角色卡可以存在于多个物理文件中。
+_Avoid_：卡片文件、文件记录
 
-**Unique content**: Card content treated as one logical item after excluding file-level differences that do not alter the definition.
+**文件记录**：
+一次扫描中代表一个物理文件的审计条目；不同文件记录可以指向同一唯一内容。
+_Avoid_：角色卡、唯一内容
 
-**Run batch**: An independently identified, immutable snapshot produced by one stage execution.
+**唯一内容**：
+排除不影响角色定义的文件差异后，可作为同一逻辑内容处理的一组角色卡内容；它可以对应一个或多个文件记录。
+_Avoid_：唯一文件、重复文件
 
-**Classification**: A decision selecting one core category under the policy. It is mutually exclusive with exclusion and human review.
+**扫描批次**：
+一次扫描产生的、具有独立身份且不覆盖其他结果的完整审计快照。
+_Avoid_：当前目录、最新文件
 
-**Exclusion**: A decision that an absolute policy rule applies. It does not mean deleting the file.
+**分类**：
+依据分类政策为角色卡选择一个核心主类别的决定；它与排除和人工复核互斥。
+_Avoid_：标签、复制目录
 
-**Human review**: A pending state requiring a person to make the final decision, not a normal category.
+**排除**：
+角色卡明确命中绝对排除规则、因此不进入普通主分类的决定；排除本身不表示删除文件。
+_Avoid_：删除、损坏、人工复核
 
-**Refinement**: An additional work/IP grouping for eligible fanwork that preserves the first-level decision.
+**人工复核**：
+现有信息或政策要求人来作出最终判断的待决状态，而不是一个普通分类。
+_Avoid_：低置信度分类、排除
 
-**Organization plan**: A set of intended file operations with sources, destinations, operations, and integrity data; it has not yet changed card files.
+**一级分类**：
+整理树的第一层处置结果，包括获准的主类别或保留原决定语义的特殊处置类别。
+_Avoid_：标签、二次分类
 
-**Approved execution**: Applying one exact, human-approved organization plan and recording every result.
+**二次分类**：
+在不改变一级分类的前提下，仅为同人角色卡增加的作品或系列 IP 层级。
+_Avoid_：整理辅助分组、重新分类、递归分类
 
-**Authoritative input**: A verified, explicitly selected input snapshot for a later stage; it is not merely the newest directory.
+**整理辅助分组**：
+在排除、未分类或标准外等特殊一级类别下，依据已有原因或原类别形成的浏览层级；它不产生新的内容分类结论。
+_Avoid_：二次分类、主分类
+
+**整理计划**：
+一组尚未改变任何角色卡的预期文件操作，包含可供人工检查的来源、目标、操作类型和完整性信息。
+_Avoid_：整理结果、批准执行
+
+**批准执行**：
+人工明确接受某一份确定的整理计划后，按该计划实施并记录结果的过程。
+_Avoid_：生成计划、自动整理
+
+**权威输入**：
+某一后续阶段被指定使用的、经验证且身份明确的输入快照；它不同于历史记录中曾经最新的结果。
+_Avoid_：任意最新批次、历史快照
+
+**历史快照**：
+保留某一时间点事实、判断与交接背景的不可追溯更新记录；它不自动代表当前状态。
+_Avoid_：当前状态、权威输入

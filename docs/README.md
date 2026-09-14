@@ -1,8 +1,17 @@
-# Documentation
+# 文档索引
 
-- [Status](./status.md) / [当前状态](./status.zh-CN.md)
-- [Runbook](./runbook.md) / [运行手册](./runbook.zh-CN.md)
-- [Architecture](./architecture.md) / [架构](./architecture.zh-CN.md)
-- [Classification policy](./classification-policy.md) / [分类政策](./classification-policy.zh-CN.md)
-- [English policy translation](./classification-standard.en.md)
-- [Domain glossary](../CONTEXT.md) / [领域术语](../CONTEXT.zh-CN.md)
+当前文档按问题分工，避免把状态、操作步骤、领域术语和历史记录混在同一份文件中。
+
+| 文档 | 解决的问题 |
+|---|---|
+| [项目入口](../README.md) | 这个项目做什么、有哪些安全边界、现在大致进行到哪里？ |
+| [当前状态](./status.md) | 哪些阶段真实完成、权威输入是什么、下一安全步骤和阻塞条件是什么？ |
+| [系统架构与数据流](./architecture.md) | 各阶段如何衔接、脚本读取和生成什么、批次如何关联？ |
+| [运行手册](./runbook.md) | 应该运行哪条 PowerShell 命令、会产生什么副作用、哪些操作需要批准？ |
+| [分类政策入口](./classification-policy.md) | 唯一权威分类规则在哪里、代码如何依赖它、修改时要注意什么？ |
+| [领域词汇表](../CONTEXT.md) | 项目中的关键术语分别是什么意思？ |
+| [重构前 README 历史快照](./history/pre-refactor-readme.md) | 文档重构前混合在 README 中的旧阶段说明、命令和状态记录。 |
+| [第五阶段历史快照](./history/phase-05-handoff.md) | 05、051、052 执行当时的统计、哈希、风险和交接结论。 |
+| [第七、八阶段历史快照](./history/phase-07-08-handoff.md) | 二次分类实现和真实预检当时的状态。 |
+
+当前没有满足创建条件的架构决策记录。只有当一个决定同时难以逆转、缺少上下文会令人困惑，并且确实经过替代方案取舍时，才创建 `docs/adr/` 和对应 ADR。

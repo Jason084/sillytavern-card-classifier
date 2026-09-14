@@ -1,17 +1,20 @@
-# Classification policy
+# 分类政策入口
 
-[简体中文](./classification-policy.zh-CN.md)
+[根目录 `分类标准.md`](../分类标准.md) 是本项目唯一权威分类规则。本文只说明规则如何接入流程，不复制绝对避雷条件、优先级或类别列表。
 
-The root-level [`分类标准.md`](../分类标准.md) is the sole authoritative and executable classification policy. The [English translation](./classification-standard.en.md) is for readers and must carry the SHA-256 of the exact Chinese source.
+## 代码依赖
 
-Stages 050, 051, and 052 read the Chinese policy. Review stages parse allowed category names from the “第一优先级” and “第二优先级” headings. Every model batch records the policy SHA-256 and refuses to resume if the source bytes have changed.
+- 050 默认直接读取根目录 `分类标准.md`。
+- 051 和 052 通常继承来源批次记录的规则路径，也允许显式提供规则文件。
+- 051 和 052 从“第一优先级”“第二优先级”标题下解析允许类别；当前解析器同时接受有无标题空格，并会忽略列表标记。
+- 分类批次记录规则文件 SHA-256；规则文件发生任何字节变化后，原批次都会拒绝续跑。
 
-When changing the policy:
+因此当前不能安全移动根目录规则文件。若未来要移动，必须同时更新 050、051、052 的默认路径、相关测试、运行手册和所有引用，并验证旧批次兼容策略。
 
-1. Edit only `分类标准.md` for executable rules.
-2. Decide whether the change is editorial or semantic; both change the hash, while semantic changes also require a new model batch.
-3. Update the English reading translation and its source-hash marker.
-4. Run `npm run check:policy` and the full test suite.
-5. Never rewrite an existing batch to claim it used the new policy.
+## 修改规则的维护流程
 
-The repository intentionally does not duplicate category lists in architecture or runbook documents.
+1. 只编辑根目录 `分类标准.md`，不得在 `docs/` 或提示词文件中维护第二份规则正文。
+2. 区分排版修正与语义变更；任何修改都会改变哈希，语义变更还需要新的分类批次。
+3. 核对两个优先级标题仍能被 051/052 解析，且类别集合没有意外增删。
+4. 更新 [当前状态](./status.md) 中受影响的权威输入和阻塞条件。
+5. 不改写已经完成的历史批次或[历史快照](./history/)。

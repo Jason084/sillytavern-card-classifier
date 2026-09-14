@@ -1,0 +1,46 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="560" viewBox="0 0 1200 560" role="img" aria-labelledby="title desc">
+  <title id="title">从原始收藏到分类副本的安全流程</title>
+  <desc id="desc">原始收藏只读，经过复制收集、扫描去重、分类复核和计划生成后，必须人工批准才会复制为分类副本。</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#171310"/><stop offset="1" stop-color="#0d0c0b"/></linearGradient>
+    <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10Z" fill="#c51d24"/></marker>
+  </defs>
+  <rect width="1200" height="560" rx="26" fill="url(#bg)"/><rect x="1" y="1" width="1198" height="558" rx="25" fill="none" stroke="#4d3c32" stroke-width="2"/>
+  <g font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', sans-serif">
+    <text x="56" y="67" fill="#c29a5b" font-size="18" font-weight="700" letter-spacing="2">SAFE PIPELINE · COPY BY DEFAULT</text>
+    <text x="56" y="119" fill="#f2e9d8" font-size="44" font-weight="800">从收藏到可追溯的分类副本</text>
+    <text x="56" y="154" fill="#a99d90" font-size="20">先留下证据，再生成计划；只有人工批准能跨过最后一道门。</text>
+    <g id="pipeline" transform="translate(56 202)">
+      <path d="M160 102H216M384 102H440M656 102H712M928 102H976" fill="none" stroke="#c51d24" stroke-width="4" marker-end="url(#arrow)"/>
+      <g id="source">
+        <rect width="160" height="204" rx="18" fill="#211b17" stroke="#695243" stroke-width="2"/><circle cx="80" cy="52" r="25" fill="#30241e" stroke="#c29a5b" stroke-width="2"/>
+        <path d="M68 45H91M68 53H91M68 61H83" stroke="#f2e9d8" stroke-width="3" stroke-linecap="round"/>
+        <text x="80" y="106" text-anchor="middle" fill="#f2e9d8" font-size="24" font-weight="750">原始收藏</text><text x="80" y="140" text-anchor="middle" fill="#c29a5b" font-size="18" font-weight="700">只读</text><text x="80" y="174" text-anchor="middle" fill="#9e9387" font-size="17">不移动 · 不改写</text>
+      </g>
+      <g id="collect" transform="translate(224 0)">
+        <rect width="160" height="204" rx="18" fill="#211b17" stroke="#695243" stroke-width="2"/><circle cx="80" cy="52" r="25" fill="#30241e" stroke="#c51d24" stroke-width="2"/>
+        <path d="M70 44H87V61H70ZM78 36H95V53" fill="none" stroke="#f2e9d8" stroke-width="3"/>
+        <text x="80" y="106" text-anchor="middle" fill="#f2e9d8" font-size="24" font-weight="750">收集副本</text><text x="80" y="140" text-anchor="middle" fill="#c29a5b" font-size="18" font-weight="700">010</text><text x="80" y="174" text-anchor="middle" fill="#9e9387" font-size="17">只复制到工作区</text>
+      </g>
+      <g id="audit" transform="translate(440 0)">
+        <rect width="216" height="204" rx="18" fill="#211b17" stroke="#695243" stroke-width="2"/><circle cx="108" cy="52" r="25" fill="#30241e" stroke="#c51d24" stroke-width="2"/>
+        <circle cx="103" cy="48" r="10" fill="none" stroke="#f2e9d8" stroke-width="3"/><path d="M111 56L121 66" stroke="#f2e9d8" stroke-width="3" stroke-linecap="round"/>
+        <text x="108" y="106" text-anchor="middle" fill="#f2e9d8" font-size="24" font-weight="750">扫描 · 去重 · 分类</text><text x="108" y="140" text-anchor="middle" fill="#c29a5b" font-size="18" font-weight="700">020–052 · 070</text><text x="108" y="174" text-anchor="middle" fill="#9e9387" font-size="17">报告绑定输入与哈希</text>
+      </g>
+      <g id="plan" transform="translate(712 0)">
+        <rect width="216" height="204" rx="18" fill="#211b17" stroke="#695243" stroke-width="2"/><circle cx="108" cy="52" r="25" fill="#30241e" stroke="#c51d24" stroke-width="2"/>
+        <path d="M97 40H115L122 47V65H97Z" fill="none" stroke="#f2e9d8" stroke-width="3"/><path d="M103 52H116M103 59H116" stroke="#f2e9d8" stroke-width="2"/>
+        <text x="108" y="106" text-anchor="middle" fill="#f2e9d8" font-size="24" font-weight="750">生成整理计划</text><text x="108" y="140" text-anchor="middle" fill="#c29a5b" font-size="18" font-weight="700">060 · 080 · 090 · 100</text><text x="108" y="174" text-anchor="middle" fill="#9e9387" font-size="17">默认未批准 · 可审计</text>
+      </g>
+      <g id="approve" transform="translate(976 0)">
+        <rect width="152" height="204" rx="18" fill="#271816" stroke="#c51d24" stroke-width="3"/><circle cx="76" cy="52" r="25" fill="#3a1a19" stroke="#c29a5b" stroke-width="2"/>
+        <path d="M64 52L73 61L90 42" fill="none" stroke="#f2e9d8" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+        <text x="76" y="106" text-anchor="middle" fill="#f2e9d8" font-size="24" font-weight="800">人工批准</text><text x="76" y="140" text-anchor="middle" fill="#c29a5b" font-size="18" font-weight="700">最后闸门</text><text x="76" y="174" text-anchor="middle" fill="#9e9387" font-size="17">批准后才复制</text>
+      </g>
+    </g>
+    <g transform="translate(56 468)">
+      <circle cx="7" cy="7" r="7" fill="#c51d24"/><text x="28" y="14" fill="#d7cbbb" font-size="19">分类副本与执行日志保留追溯链；原始收藏始终留在流程之外。</text>
+      <text x="1088" y="14" text-anchor="end" fill="#73685f" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="16">EVIDENCE → PLAN → APPROVAL → COPY</text>
+    </g>
+  </g>
+</svg>

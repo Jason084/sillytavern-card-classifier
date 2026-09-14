@@ -1,23 +1,59 @@
-# Project status
+# 当前状态
 
-[简体中文](./status.zh-CN.md)
+最后核实日期：2026-09-14。
 
-Last verified: 2026-09-14.
+本页只记录当前可验证状态。历史阶段当时的结论见 [历史快照](./history/)。
 
-Version `0.1.0` remains the first public-preview baseline. The current `main` branch contains stages 010 through 110, 34 unit/integration tests using synthetic data, provider-neutral model configuration, approval-bound organization and tagging plans, bilingual documentation, and Windows CI for Node.js 22 and 24.
+## 权威输入
 
-Stage 110 is implemented and verified. It derives tags from an approved, fully executed stage-100 plan, preserves existing tags, appends the first-level category and final fanwork IP when applicable, and writes hash-bound copies to a new empty destination. Its generated plan requires a separate approval before execution, and an unchanged compatibility copy must be named explicitly in the preview command.
+| 用途 | 权威输入 | 验证依据 |
+|---|---|---|
+| 文件扫描 | `reports/scans/20260821T062149Z/index.jsonl` | SHA-256 `d8e30947987603546f7dd2f84e8a06293e7fca6a9abbe0ac28fe32746e56fa6f`；`summary.json` 记录 15,795 个文件、15,134 个有效角色卡 |
+| 一级分类 | `reports/classification-reviews-052/20260822T121236978Z-f3d98577/classifications.jsonl` | SHA-256 `46a4ace4ed586a25952760ef0e563d61db2431fbb1fbeb397592d57ee3d936bd`；`run.json.status` 为 `complete` |
+| 第七阶段 | `reports/refinements/20260828T014934920Z-2596cc25/refinements.jsonl` | SHA-256 `edf89cd2dbae794058178610339e1a596b0bce6deb09844ef2f7c42c08bbefdc`；`run.json.status` 与 `summary.json.status` 均为 `complete`，共 15,134 条结果 |
+| 第八阶段 | `reports/refinement-plans/20260828T064930900Z-d833432f/plan.jsonl` | SHA-256 `e4c49d926ac0ce4b7600758649c3280c88f8adfcb1a7f42b537a78e6e45e6380`；执行汇总记录 15,134 条全部为 `copied` |
+| 第九阶段候选 | `reports/fanwork-ip-merge-candidates/20260828T160159364Z-bbaa1cab/candidates.jsonl` | SHA-256 `3740ae0a07a2ae5db98c7aa24d589dfa6f82834808d18f0e3fa60d4aed539bda`；`run.json.status` 为 `complete`，`approval.json.approved` 为 `true` |
+| 第十阶段计划 | `reports/fanwork-ip-merge-plans/20260828T165002022Z-b085047a/plan.jsonl` | SHA-256 `67e18d9c7dceabcc081cde895d778825cdf0db2bab0ae051fbff5a27c9694ecb`；`execution-summary-20260828T170126357Z-2f662d98.json` 记录 15,134 条全部为 `copied` |
+| 第十一阶段标签计划 | `reports/classification-tag-plans/20260911T015559079Z-be9c8a75/plan.jsonl` | SHA-256 `ebd18aa46b5d486472970caec5e45cf74487a0ffbcf0b3997dbc06b6983449a5`；`approval.json.approved` 为 `true`；`execution-summary-20260911T020110945Z-cf91b068.json` 记录 15,133 条 `tagged_copy_written` 和 1 条 `unchanged_copy_written` |
 
-A maintainer production run, whose private cards and batch files are not published, verified 15,134 planned outputs and 15,134 written copies. Of these, 15,133 received new tags, one explicitly approved compatibility exception was copied unchanged, and 17,150 tags were added in total. The public evidence for the implementation is the synthetic test suite; these aggregate production counts are not reproducible from a fresh clone.
+历史 052 批次绑定的分类标准 SHA-256 是 `185f7c7fe17506b2975af2b31332385b57c4b47b502ccc2640271f0d80b04fa7`。本次文档重构只调整了权威规则文件的 Markdown 结构，没有改变分类语义；当前文件 SHA-256 为 `524b088e307263fc9b9e310c41eb35370e8eb8b6f5a45034f589bb00306d3dce`。已经完成的 05、051、052 批次不应再用当前规则文件续跑。
 
-No character cards, generated run reports, private collection paths, or private batch history are part of the public repository. A fresh clone starts without authoritative data batches; users must create their own working copy and reports.
+## 已完成
 
-Supported platform: Windows 10 or later with PowerShell 7 and Node.js 22 or 24 LTS. Linux and macOS may run some Node stages but are not part of the v0.1 support contract.
+- 第一阶段工作副本已建立；当前 `data/未分类角色卡/` 有 15,795 个文件。
+- 第二阶段权威扫描已完成：15,134 个有效角色卡文件记录。
+- 第三阶段重复检测批次 `20260821T063713Z` 已完成，共 1,128 个复核组；报告明确记录输入文件未改变。
+- 第五阶段 05、051、052 已完成。052 结果包含 12,754 条 `classify`、2,075 条 `exclude` 和 305 条 `review`。
+- 第六阶段计划 `20260822T131941624Z-0ab16690` 已获批准并执行。独立执行汇总记录 15,134 条全部为 `copied`；当前 `data/已分类角色卡/` 也有 15,134 个文件。
+- 第七、八阶段已收缩为选择性细分：只有超阈值的`同人`会调用模型按作品或系列 IP 分类；超阈值的`排除`、`未分类`和`标准外`只做本地辅助分组；其他普通一级类别保持扁平。080 会拒绝旧范围批次和普通类别二级目录。
+- 第七阶段当前范围批次 `20260828T014934920Z-2596cc25` 已完成。它处理 2,208 个需要模型判断的唯一内容，得到 2,204 个模型检查点；其中 597 个因正文触发上游过滤而改用名称、作者和标签元数据分类。4 个模型持续遗漏的唯一内容使用明确兜底，共影响 4 条文件记录。完整结果仍覆盖全部 15,134 条一级分类记录，`unique_failed_or_incomplete` 为 0。
+- 该批次共预留 304 次 HTTP 请求，低于 345 次硬上限；没有 HTTP 429、认证或传输错误。60 次正文请求被上游以 HTTP 200 包装的内容过滤响应拒绝，均由程序识别并改用元数据重试。
+- 第八阶段计划 `20260828T064930900Z-d833432f` 已获批准并执行。`execution-summary-20260828T065043764Z-92fe8810.json` 记录读取 15,134 条计划，结果全部为 `copied`，没有错误明细。当前 `data/二次分类角色卡/` 有 15,134 个文件，`data/已分类角色卡/` 仍保留 15,134 个文件。
+- 第九阶段候选脚本已实现，并生成批次 `20260828T160159364Z-bbaa1cab`。该批次交叉校验了权威 070 结果、对应 080 计划和完整复制执行汇总；输出 540 条目录候选与 2,250 条逐卡索引。候选哈希和逐卡索引 SHA-256 分别为 `3740ae0a07a2ae5db98c7aa24d589dfa6f82834808d18f0e3fa60d4aed539bda`、`c3001285838ce6ce2722cb2e3391f0a150efa0b2eeb853f1df2e317b7fd99c81`，批次明确记录没有调用外部模型、没有修改 `data/`。
+- 候选实测复现当前问题统计：2,250 个同人文件、540 个目录、279 个单文件目录、461 个不超过 5 个文件的目录。名称规则得到 499 个规范名称；`原神/原神系列`、`碧蓝航线/碧蓝航线系列`、`明日方舟/明日方舟系列`和`BanG Dream/BanG Dream!`均生成同名归并建议。用户指定的 6 个型月目录合计 59 个文件，建议目标为`型月世界`。
+- 用户已批准第九阶段映射，并明确决定暂不拆分原先 1,066 个文件的`待确认原作`候选，也不放宽 10 个文件的独立目录门槛。39 个归并后仍只有 6–9 个文件的规范 IP（对应 47 个原目录、294 个文件）因此一并归入`待确认原作`，批准后的该桶合计 1,360 个文件；最终同人目标目录共 36 个。
+- 第十阶段脚本已实现，完整复制计划 `20260828T165002022Z-b085047a` 已获批准并执行。预览重新校验了 `data/二次分类角色卡/` 下全部 15,134 个文件的 SHA-256，没有缺失或变化来源；执行汇总记录 15,134 条全部为`copied`。当前 `data/同人IP归并角色卡/` 有 15,134 个文件，其中`同人` 2,250 个、36 个直属目标目录，`待确认原作` 1,360 个、`型月世界` 59 个；`data/二次分类角色卡/` 仍保留 15,134 个文件。
+- 执行后的独立验收重新计算了目标全部文件的 SHA-256。计划来源与实际目标均为 15,134 个文件、14,928 个唯一哈希，哈希多重集合差异为 0；目标路径也保持 15,134 个且全部唯一。
+- 第十一阶段脚本 `src/110-write-classification-tags.mjs` 已实现并正式执行。计划批次 `20260911T015559079Z-be9c8a75` 读取 15,134 条记录，`invalid_sources` 为 0，计划新增 17,150 个标签；计划已批准，执行汇总记录 15,133 张写入新标签、1 张无需新增标签而原样复制。当前 `data/带分类标签角色卡/` 实测有 15,134 个文件。
 
-Known limitations:
+## 未完成
 
-- Model classification quality depends on the selected endpoint and requires human review.
-- The included Chinese classification policy reflects one workflow and should be reviewed before use.
-- Stage 060 retains an explicit `move` option for disposable working copies; later organization stages are copy-only.
-- No public compatibility guarantee exists for private batches created before v0.1.
-- Stage 110 supports PNG `tEXt` metadata and JSON cards recognized by the existing parser; malformed metadata must be fixed or explicitly approved as an unchanged compatibility copy.
+- 第七阶段分类质量仍需人工抽检，重点是 597 个元数据分类结果和 4 个兜底结果；这不影响第八阶段复制数量与哈希完整性。
+- 当前 070 源码已支持 `fanwork-source-ip-and-special-groups-v2`，相关自动化测试已通过，但尚无完成的权威 v2 外部模型批次。已完成工作仍以 v1 批次为准，不能把源码能力误记为已经执行的新分类结果。
+
+## 下一安全步骤
+
+1. 人工抽检 `data/同人IP归并角色卡/同人/` 中的规范目录、`待确认原作`和`型月世界`，并保留 090 逐卡索引与 100 执行日志作为追溯依据。
+2. 抽检 `data/带分类标签角色卡/` 中的常见分类、避雷目录和同人 IP，确认 SillyTavern 内显示的原标签、一级分类与同人 IP 符合预期，并保留 110 计划和执行日志用于追溯。
+3. 在确认带标签副本满足使用需求前，继续保留 `data/二次分类角色卡/` 和 `data/同人IP归并角色卡/`，不要删除或覆盖旧副本。
+4. 如果要执行 070 v2，应新建并完成独立模型批次；分类标准哈希或提示词版本变化后不得续跑旧批次。目录归并和标签写入也不能代替对 597 个元数据分类结果和 4 个兜底结果的人工抽检。
+
+具体命令和警告见 [运行手册](./runbook.md)。本次核实没有读取当前进程是否存在 API 密钥，因此不对凭据状态作断言。
+
+## 阻塞与待人工决定
+
+- 当前没有文件完整性或复制方面的技术阻塞。第十、十一阶段均已执行；带分类标签目标目录实测为 15,134 个文件。剩余工作是人工目录与标签质量抽检，以及是否另行运行 070 v2 的产品决定。
+- 2026-09-14 在合并 GitHub 远端通用化代码并恢复本地标签功能后运行 `node --test`，34 项测试全部通过。
+- 第七阶段出现的 HTTP 200 包装拒绝按当前处置决定视为上游中转站行为；已有批次已完成降级处理，不将其列为下一阶段待修复事项，也不为此继续修改客户端。
+- 052 中 305 条 `review`、2,075 条 `exclude` 和 6 个标准外类别已在第六阶段分别复制到特殊一级目录，但这不等于完成人工质量复核。
+- 第五阶段历史记录列出的 5 个英文漏判候选和 3 个 R18G 边界候选仍没有可验证的后续处置记录。

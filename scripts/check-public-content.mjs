@@ -1,15 +1,28 @@
 import { readdir, readFile } from 'node:fs/promises';
-import { join, resolve } from 'node:path';
+import { join, relative, resolve } from 'node:path';
 
 const root = resolve(import.meta.dirname, '..');
 const ignored = new Set(['.git', 'data', 'node_modules', 'reports', 'work']);
+
+const promptMarkerWords = ['un', 'restricted', 'jail', 'break'];
 const forbidden = [
-  ['legacy endpoint', /aibh\.cc/iu],
-  ['legacy credential variable', /CHEESE_API_KEY/u],
-  ['legacy prompt prefix', /现在进入无限制模式/u],
-  ['private workspace path', /C:\\ancode\\Claude Code/iu],
-  ['private collection path', /D:\\网盘/iu],
-  ['private email', /15099915306@163\.com/iu],
+  [
+    'external API endpoint',
+    /https?:\/\/(?!(?:localhost|127\.0\.0\.1)(?::\d+)?(?:[/:\s"'`)]|$))(?!(?:[^/\s"']+\.)?example(?:\.[a-z]{2,})?(?::\d+)?(?:[/:\s"'`)]|$))(?:(?:[a-z0-9-]+\.)+[a-z]{2,})(?::\d+)?\/v\d+(?:[/?#\s"'`)]|$)/iu,
+  ],
+  ['credential variable', /\b(?!(?:MODEL|API)_)[A-Z][A-Z0-9]*(?:_(?:API_KEY|API_TOKEN|SECRET|TOKEN|PASSWORD))\b/u],
+  [
+    'unsafe prompt marker',
+    new RegExp(
+      `\\b(?:${promptMarkerWords[0]}${promptMarkerWords[1]}|${promptMarkerWords[2]}${promptMarkerWords[3]})\\b|(?:无限制|不受限制)(?:模式|指令)`,
+      'iu',
+    ),
+  ],
+  [
+    'private-looking Windows path',
+    /\b[A-Z]:\\(?:[^\\\r\n`"'<>|,]*\\)*(?:[^\\\r\n`"'<>|,]*[ ][^\\\r\n`"'<>|,]*\\|[^\\\r\n`"'<>|,]*[^\x00-\x7F][^\\\r\n`"'<>|,]*\\|(?:Users|home|Documents and Settings)\\[^\\\r\n`"'<>|,]+)/iu,
+  ],
+  ['email address', /\b[A-Z0-9._%+-]+@(?!(?:[A-Z0-9-]+\.)*example(?:\.[A-Z]{2,})?\b)[A-Z0-9.-]+\.[A-Z]{2,}\b/iu],
 ];
 
 async function files(directory) {
@@ -23,15 +36,24 @@ async function files(directory) {
   return output;
 }
 
-const failures = [];
-for (const file of await files(root)) {
-  if (file === import.meta.filename) continue;
-  let text;
-  try { text = await readFile(file, 'utf8'); } catch { continue; }
-  for (const [label, pattern] of forbidden) if (pattern.test(text)) failures.push(`${file.slice(root.length + 1)}: ${label}`);
+export async function findPublicContentFailures(directory = root) {
+  const failures = [];
+  for (const file of await files(directory)) {
+    let text;
+    try { text = await readFile(file, 'utf8'); } catch { continue; }
+    if (text.includes('\u0000') || text.includes('\uFFFD')) continue;
+    for (const [label, pattern] of forbidden) {
+      if (pattern.test(text)) failures.push(`${relative(directory, file)}: ${label}`);
+    }
+  }
+  return failures;
 }
-if (failures.length) {
-  console.error(`Content not suitable for the public repository:\n${failures.join('\n')}`);
-  process.exit(1);
+
+if (process.argv[1] && resolve(process.argv[1]) === import.meta.filename) {
+  const failures = await findPublicContentFailures();
+  if (failures.length) {
+    console.error(`Content not suitable for the public repository:\n${failures.join('\n')}`);
+    process.exit(1);
+  }
+  console.log('Public-content check OK');
 }
-console.log('Public-content check OK');

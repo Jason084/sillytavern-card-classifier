@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
+import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 import {
   ModelBudgetExceededError, ModelContentFilterError, cardModelInput, createRequestBudget, hasSemanticContent, modelSettingsFromEnv,
@@ -156,7 +157,11 @@ test('请求完成日志写入失败时停止，预留记录仍先于付费请�
 });
 
 test('模型配置由通用环境变量提供，密钥只读取 MODEL_API_KEY', () => {
-  const names = ['MODEL_API_BASE_URL', 'MODEL_NAME', 'MODEL_BATCH_SIZE', 'MODEL_MAX_OUTPUT_TOKENS', 'MODEL_API_KEY'];
+  const names = [
+    'MODEL_API_BASE_URL', 'MODEL_NAME', 'MODEL_API_KEY', 'MODEL_CONFIDENCE_THRESHOLD', 'MODEL_BATCH_SIZE',
+    'MODEL_CONCURRENCY', 'MODEL_MAX_ATTEMPTS', 'MODEL_MAX_OUTPUT_TOKENS', 'MODEL_MIN_REQUEST_INTERVAL_MS',
+    'MODEL_RATE_LIMIT_BACKOFF_MS',
+  ];
   const saved = Object.fromEntries(names.map((name) => [name, process.env[name]]));
   try {
     for (const name of names) delete process.env[name];
@@ -177,6 +182,50 @@ test('模型配置由通用环境变量提供，密钥只读取 MODEL_API_KEY', 
     assert.equal(overridden.apiKey, 'model-secret');
   } finally {
     for (const name of names) {
+      if (saved[name] === undefined) delete process.env[name]; else process.env[name] = saved[name];
+    }
+  }
+});
+
+test('模型环境变量示例覆盖公开配置，默认值和边界与实现一致', async () => {
+  const example = await readFile(new URL('../.env.example', import.meta.url), 'utf8');
+  const names = [...example.matchAll(/^\s*#?\s*(MODEL_[A-Z0-9_]+)\s*=/gmu)].map((match) => match[1]);
+  assert.deepEqual(new Set(names), new Set([
+    'MODEL_API_BASE_URL', 'MODEL_NAME', 'MODEL_API_KEY', 'MODEL_CONFIDENCE_THRESHOLD', 'MODEL_BATCH_SIZE',
+    'MODEL_CONCURRENCY', 'MODEL_MAX_ATTEMPTS', 'MODEL_MAX_OUTPUT_TOKENS', 'MODEL_MIN_REQUEST_INTERVAL_MS',
+    'MODEL_RATE_LIMIT_BACKOFF_MS', 'MODEL_MAX_HTTP_REQUESTS',
+  ]));
+
+  const namesToRestore = [
+    'MODEL_API_BASE_URL', 'MODEL_NAME', 'MODEL_API_KEY', 'MODEL_CONFIDENCE_THRESHOLD', 'MODEL_BATCH_SIZE',
+    'MODEL_CONCURRENCY', 'MODEL_MAX_ATTEMPTS', 'MODEL_MAX_OUTPUT_TOKENS', 'MODEL_MIN_REQUEST_INTERVAL_MS',
+    'MODEL_RATE_LIMIT_BACKOFF_MS',
+  ];
+  const saved = Object.fromEntries(namesToRestore.map((name) => [name, process.env[name]]));
+  try {
+    for (const name of namesToRestore) delete process.env[name];
+    const defaults = modelSettingsFromEnv({ baseUrl: 'https://provider.example/v1', model: 'default-model' });
+    assert.equal(defaults.confidenceThreshold, 0.8);
+    assert.equal(defaults.batchSize, 10); assert.equal(defaults.concurrency, 2); assert.equal(defaults.maxAttempts, 2);
+    assert.equal(defaults.maxOutputTokens, 2_048); assert.equal(defaults.minRequestIntervalMs, 0);
+    assert.equal(defaults.rateLimitBackoffMs, 5_000);
+
+    process.env.MODEL_CONFIDENCE_THRESHOLD = '0'; process.env.MODEL_BATCH_SIZE = '3'; process.env.MODEL_CONCURRENCY = '10';
+    process.env.MODEL_MAX_ATTEMPTS = '3'; process.env.MODEL_MAX_OUTPUT_TOKENS = '1';
+    process.env.MODEL_MIN_REQUEST_INTERVAL_MS = '0'; process.env.MODEL_RATE_LIMIT_BACKOFF_MS = '1';
+    const configured = modelSettingsFromEnv({ baseUrl: 'https://provider.example/v1', model: 'configured-model' });
+    assert.equal(configured.confidenceThreshold, 0); assert.equal(configured.batchSize, 3); assert.equal(configured.concurrency, 10);
+    assert.equal(configured.maxAttempts, 3); assert.equal(configured.maxOutputTokens, 1);
+    assert.equal(configured.minRequestIntervalMs, 0); assert.equal(configured.rateLimitBackoffMs, 1);
+
+    process.env.MODEL_CONFIDENCE_THRESHOLD = '1.01';
+    assert.throws(() => modelSettingsFromEnv({ baseUrl: 'https://provider.example/v1', model: 'model' }), /MODEL_CONFIDENCE_THRESHOLD/);
+    process.env.MODEL_CONFIDENCE_THRESHOLD = '0.8'; process.env.MODEL_CONCURRENCY = '11';
+    assert.throws(() => modelSettingsFromEnv({ baseUrl: 'https://provider.example/v1', model: 'model' }), /MODEL_CONCURRENCY/);
+    process.env.MODEL_CONCURRENCY = '2'; process.env.MODEL_MIN_REQUEST_INTERVAL_MS = '-1';
+    assert.throws(() => modelSettingsFromEnv({ baseUrl: 'https://provider.example/v1', model: 'model' }), /MODEL_MIN_REQUEST_INTERVAL_MS/);
+  } finally {
+    for (const name of namesToRestore) {
       if (saved[name] === undefined) delete process.env[name]; else process.env[name] = saved[name];
     }
   }

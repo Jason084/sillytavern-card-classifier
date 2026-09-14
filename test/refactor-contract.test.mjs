@@ -24,6 +24,8 @@ test('所有 Node 阶段可安全导入并导出 main', async () => {
     '060-organize-character-cards.mjs',
     '070-refine-character-cards.mjs',
     '080-organize-refined-character-cards.mjs',
+    '090-propose-fanwork-ip-merges.mjs',
+    '100-organize-merged-character-cards.mjs',
   ];
   for (const script of scripts) {
     const module = await import(`${pathToFileURL(join(root, 'src', script)).href}?import-safety`);
@@ -97,7 +99,7 @@ test('070 拒绝旧范围 prepared 批次，当前范围 dry-run 不改元数据
       source_classifications_sha256: await sha256File(classificationsPath),
       source_index: indexPath,
       source_index_sha256: await sha256File(indexPath),
-      threshold: 100, api_base_url: 'https://aibh.cc/v1', model_version: 'v4 flash',
+      threshold: 100, api_base_url: 'http://127.0.0.1:9999/v1', model_version: 'mock-model',
       prompt_version: 'refinement-v1-single-level-parent-adaptive', batch_size: 30,
       concurrency: 1, max_attempts: 2, max_output_tokens: 4_096, max_http_requests: 2_000,
     };
@@ -107,7 +109,7 @@ test('070 拒绝旧范围 prepared 批次，当前范围 dry-run 不改元数据
     async function runDry() {
       return new Promise((accept, reject) => {
         const child = spawn(process.execPath, [join(root, 'src', '070-refine-character-cards.mjs'), `--resume=${batchDirectory}`, '--dry-run'], {
-          env: { ...process.env, MODEL_API_BASE_URL: 'https://aibh.cc/v1', MODEL_NAME: 'v4 flash', MODEL_BATCH_SIZE: '30', MODEL_CONCURRENCY: '1', MODEL_MAX_ATTEMPTS: '2', MODEL_MAX_OUTPUT_TOKENS: '4096', MODEL_MAX_HTTP_REQUESTS: '2000', MODEL_API_KEY: '', CHEESE_API_KEY: '' },
+          env: { ...process.env, MODEL_API_BASE_URL: 'http://127.0.0.1:9999/v1', MODEL_NAME: 'mock-model', MODEL_BATCH_SIZE: '30', MODEL_CONCURRENCY: '1', MODEL_MAX_ATTEMPTS: '2', MODEL_MAX_OUTPUT_TOKENS: '4096', MODEL_MAX_HTTP_REQUESTS: '2000', MODEL_API_KEY: '' },
           stdio: ['ignore', 'pipe', 'pipe'],
         });
         let output = ''; child.stdout.on('data', (chunk) => { output += chunk; }); child.stderr.on('data', (chunk) => { output += chunk; });
@@ -120,7 +122,12 @@ test('070 拒绝旧范围 prepared 批次，当前范围 dry-run 不改元数据
     assert.match(legacyResult.output, /refinement_scope/u);
     assert.equal(await readFile(runPath, 'utf8'), originalRun);
 
-    const currentRun = JSON.stringify({ ...run, refinement_scope: REFINEMENT_SCOPE, prompt_version: 'refinement-v4-fanwork-ip-filter-aware' }, null, 2);
+    const currentRun = JSON.stringify({
+      ...run,
+      refinement_scope: REFINEMENT_SCOPE,
+      prompt_version: 'refinement-v6-provider-neutral',
+      source_prompt_version: 'fanwork-source-v2-provider-neutral',
+    }, null, 2);
     await writeFile(runPath, currentRun, 'utf8');
     const result = await runDry();
     assert.equal(result.code, 0, result.output);

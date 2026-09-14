@@ -6,10 +6,9 @@ import { runClassificationReviewPhase } from './lib/classification-review-phase.
 const config = {
   sourceReportsName: 'classification-reviews',
   reportsName: 'classification-reviews-052',
-  promptVersion: 'classification-review-v2-aibh-batch2',
+  promptVersion: 'classification-review-v4-provider-neutral',
   phaseDefaults: {
-    baseUrl: 'https://aibh.cc/v1', model: 'v4 flash', batchSize: 2,
-    concurrency: 2, maxAttempts: 3, maxOutputTokens: 4_096, requireApiKeyForDefault: true,
+    batchSize: 2, concurrency: 2, maxAttempts: 3, maxOutputTokens: 4_096,
   },
   resumeError: '--resume 必须指定已有 052 复核批次目录',
   sourceIncompleteError: '052 只能复核已完整结束的 051 分类复核批次',

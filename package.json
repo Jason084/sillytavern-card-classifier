@@ -1,0 +1,27 @@
+{
+  "name": "sillytavern-card-classifier",
+  "version": "0.1.0",
+  "description": "Auditable collection, classification, and organization pipeline for SillyTavern character cards",
+  "private": true,
+  "type": "module",
+  "license": "MIT",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "test": "node --test",
+    "check:syntax": "node scripts/check-syntax.mjs",
+    "check:links": "node scripts/check-markdown-links.mjs",
+    "check:public": "node scripts/check-public-content.mjs",
+    "check:policy": "node scripts/check-policy-translation.mjs",
+    "check": "npm run check:syntax && npm test && npm run check:links && npm run check:public && npm run check:policy"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Jason084/sillytavern-card-classifier.git"
+  },
+  "bugs": {
+    "url": "https://github.com/Jason084/sillytavern-card-classifier/issues"
+  },
+  "homepage": "https://github.com/Jason084/sillytavern-card-classifier#readme"
+}

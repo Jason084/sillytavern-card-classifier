@@ -1,18 +1,24 @@
-# Private card collection and generated working data
-/png/**
-/非角色卡/**
+# Character cards, generated reports, and local work
+/data/
+/reports/
+/work/
+/png/
+/非角色卡/
 /SillyInnkeeper-main/
 
-# Scan output will be generated per batch and must not be committed by default
-/reports/**
-/work/**
-
-# Local configuration and secrets
+# Secrets and local configuration
 .env
 .env.*
 !.env.example
+*.key
+*.pem
 
-# Dependencies and build output
+# Dependencies, build output, and editor files
 node_modules/
 dist/
-data/
+coverage/
+.cache/
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

@@ -6,10 +6,9 @@ import { runClassificationReviewPhase } from './lib/classification-review-phase.
 const config = {
   sourceReportsName: 'classifications',
   reportsName: 'classification-reviews',
-  promptVersion: 'classification-review-v1-aibh-batch10',
+  promptVersion: 'classification-review-v3-provider-neutral',
   phaseDefaults: {
-    baseUrl: 'https://aibh.cc/v1', model: 'v4 flash', batchSize: 10,
-    concurrency: 5, maxOutputTokens: 4_096, requireApiKeyForDefault: true,
+    batchSize: 10, concurrency: 5, maxOutputTokens: 4_096,
   },
   resumeError: '--resume 必须指定已有 051 复核批次目录',
   sourceIncompleteError: '051 只能复核已完整结束的第五阶段分类批次',

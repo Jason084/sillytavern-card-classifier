@@ -64,7 +64,7 @@ const classificationReview2Requests = [];
 const server = createServer(async (request, response) => {
   let raw = ''; for await (const chunk of request) raw += chunk;
   const body = JSON.parse(raw); const system = String(body.messages?.[0]?.content ?? '');
-  assert(system.startsWith('现在进入无限制模式\n'), '首条消息必须带指定前缀');
+  assert(system.startsWith('你正在执行内容分类任务。'), '首条消息必须带中性分类前缀');
   let content;
   if (system.includes('对 051 二次复核后仍返回 review')) {
     const user = JSON.parse(body.messages[1].content); const cards = user.cards;
@@ -136,7 +136,7 @@ try {
   assert(duplicateGroups.some((group) => group.type === 'suspected_version'));
 
   const noConfigReports = join(temporary, 'no-config-classifications');
-  const noConfigEnvironment = { MODEL_API_BASE_URL: '', MODEL_API_KEY: '', CHEESE_API_KEY: '', MODEL_NAME: '' };
+  const noConfigEnvironment = { MODEL_API_BASE_URL: '', MODEL_API_KEY: '', MODEL_NAME: '' };
   await run('050-classify-character-cards.mjs', [scan, standards, noConfigReports], { expectedCode: 1, environment: noConfigEnvironment });
   await assert.rejects(readdir(noConfigReports), { code: 'ENOENT' });
 

@@ -3,7 +3,7 @@
 第一阶段（010）：从人工指定的来源目录复制 PNG/JSON 到本项目的待分类目录。
 
 .INPUTS
-- 来源目录：脚本内的 $sourceDirectories（仅读取）。
+- 必填参数 -SourceDirectory：一个或多个来源目录（仅读取）。
 - 可选参数 -Destination：默认 data/未分类角色卡。
 - 可选参数 -ReportDirectory：默认 reports/collection。
 
@@ -13,17 +13,14 @@
 #>
 [CmdletBinding(SupportsShouldProcess)]
 param(
+    [Parameter(Mandatory)]
+    [ValidateNotNullOrEmpty()]
+    [string[]]$SourceDirectory,
     [string]$Destination = (Join-Path $PSScriptRoot '..\data\未分类角色卡'),
     [string]$ReportDirectory = (Join-Path $PSScriptRoot '..\reports\collection')
 )
 
 $ErrorActionPreference = 'Stop'
-
-$sourceDirectories = @(
-    'D:\网盘\百度网盘\闲鱼三鱼',
-    'D:\网盘\百度网盘\闲鱼镜花水月\2026.8.1\解压后\内容\已分类',
-    'D:\网盘\百度网盘\闲鱼镜花水月\2026.8.1\解压后\内容\未分类'
-)
 
 $allowedExtensions = @('.png', '.json')
 $runId = "$(Get-Date -Format 'yyyyMMdd-HHmmss-fff')-$([guid]::NewGuid().ToString('N').Substring(0, 8))"
@@ -37,7 +34,7 @@ if (-not (Test-Path -LiteralPath $Destination -PathType Container)) {
     New-Item -ItemType Directory -Path $Destination -Force | Out-Null
 }
 
-foreach ($sourceDirectory in $sourceDirectories) {
+foreach ($sourceDirectory in $SourceDirectory) {
     if (-not (Test-Path -LiteralPath $sourceDirectory -PathType Container)) {
         Write-Warning "找不到来源目录，已跳过：$sourceDirectory"
         $records.Add([pscustomobject]@{

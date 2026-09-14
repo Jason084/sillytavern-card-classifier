@@ -89,20 +89,28 @@ function normalizedTag(value) {
   return String(value ?? '').normalize('NFKC').trim();
 }
 
-function appendCardTags(card, version, additions) {
+function updateCardTags(card, version, additions, replace = false) {
   const data = version === 1 ? card : card.data;
   if (!isObject(data)) throw new Error('supported card has no object-valued data field');
   const originalTags = array(data.tags);
-  const tags = [...originalTags];
+  const tags = replace ? [] : [...originalTags];
   const seen = new Set(tags.map(normalizedTag).filter(Boolean));
-  const addedTags = [];
+  const changedTags = [];
   for (const addition of additions) {
     const tag = normalizedTag(addition);
     if (!tag || seen.has(tag)) continue;
-    tags.push(tag); seen.add(tag); addedTags.push(tag);
+    tags.push(tag); seen.add(tag); changedTags.push(tag);
   }
   data.tags = tags;
-  return { originalTags, tags, addedTags };
+  return { originalTags, tags, addedTags: replace ? [] : changedTags, replacedTags: replace ? tags : [] };
+}
+
+function appendCardTags(card, version, additions) {
+  return updateCardTags(card, version, additions);
+}
+
+function replaceCardTags(card, version, replacements) {
+  return updateCardTags(card, version, replacements, true);
 }
 
 function pngChunk(type, data) {
@@ -113,7 +121,7 @@ function pngChunk(type, data) {
   return Buffer.concat([length, body, crc]);
 }
 
-function writePngCardTags(buffer, additions) {
+function writePngCardTags(buffer, additions, replace = false) {
   const parsed = parsePng(buffer);
   if (parsed.status !== 'ok') throw new Error(`无法写入 PNG 角色卡：${parsed.detail}`);
   const output = [buffer.subarray(0, 8)];
@@ -133,7 +141,7 @@ function writePngCardTags(buffer, additions) {
             const card = decodeMetadata(data.toString('latin1', nul + 1));
             const version = versionOf(card);
             if (version) {
-              const result = appendCardTags(card, version, additions);
+              const result = replace ? replaceCardTags(card, version, additions) : appendCardTags(card, version, additions);
               const encoded = Buffer.from(JSON.stringify(card), 'utf8').toString('base64');
               replacement = pngChunk(type, Buffer.from(`${data.toString('ascii', 0, nul)}\0${encoded}`, 'latin1'));
               metadataChunksUpdated += 1;
@@ -208,6 +216,19 @@ export function addTagsToCardFile(buffer, extension, additions) {
   const parsed = parseJson(buffer);
   if (parsed.status !== 'ok') throw new Error(`无法写入 JSON 角色卡：${parsed.detail}`);
   const result = appendCardTags(parsed.card, parsed.version, additions);
+  return {
+    buffer: Buffer.from(`${JSON.stringify(parsed.card, null, 2)}\n`, 'utf8'),
+    ...result, version: parsed.version, metadataChunksUpdated: 0,
+  };
+}
+
+export function replaceTagsToCardFile(buffer, extension, replacements) {
+  const normalizedExtension = extension.toLowerCase();
+  if (normalizedExtension === '.png') return writePngCardTags(buffer, replacements, true);
+  if (normalizedExtension !== '.json') throw new Error(`不支持的角色卡扩展名：${extension}`);
+  const parsed = parseJson(buffer);
+  if (parsed.status !== 'ok') throw new Error(`无法写入 JSON 角色卡：${parsed.detail}`);
+  const result = replaceCardTags(parsed.card, parsed.version, replacements);
   return {
     buffer: Buffer.from(`${JSON.stringify(parsed.card, null, 2)}\n`, 'utf8'),
     ...result, version: parsed.version, metadataChunksUpdated: 0,

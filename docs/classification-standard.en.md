@@ -2,7 +2,7 @@
 
 > This translation is for reading only. [`../分类标准.md`](../分类标准.md) is the sole authoritative and executable policy.
 
-Source SHA-256: `076455573bf172ba2f069c9b68edeccf46834f907e278b9361a4460c1a302a65`
+Source SHA-256: `524b088e307263fc9b9e310c41eb35370e8eb8b6f5a45034f589bb00306d3dce`
 
 ## Decision order
 

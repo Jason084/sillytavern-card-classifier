@@ -250,3 +250,30 @@ node .\src\100-organize-merged-character-cards.mjs --execute `
 ```
 
 执行会再次确认候选、候选批准、080 来源计划和 100 计划均未变化，并拒绝复用非空目标目录。执行结束后必须核对 15,134 个文件、2,250 个同人文件以及来源和目标 SHA-256 多重集合一致。
+
+## 第十一阶段：把分类写入角色卡标签
+
+> **预览会读取角色卡正文并写报告；`--execute` 会生成内容已变化的新副本。** 110 不调用外部模型，也不原地修改 `data/同人IP归并角色卡/`。目标必须是新的空目录。
+
+四个位置参数依次是“已批准且完整执行的 100 批次、IP 归并来源、新目标目录、计划报告根目录”：
+
+```powershell
+node .\src\110-write-classification-tags.mjs `
+  .\reports\fanwork-ip-merge-plans\<已执行100批次> `
+  .\data\同人IP归并角色卡 `
+  .\data\带分类标签角色卡 `
+  .\reports\classification-tag-plans
+```
+
+脚本保留每张卡已有标签，追加一级分类；同人卡再追加 100 计划中批准后的最终 IP。例如原标签为`旧标签`的原神同人卡，输出标签为`旧标签`、`同人`、`原神`。已有的同名标签不会重复追加。特殊一级目录下的整理辅助分组不会作为标签写入。
+
+预览逐卡核对来源 SHA-256，并解析 SillyTavern Character Card V1、V2、V3 的 JSON 或 PNG 元数据。输出 `plan.jsonl`、`plan.csv`、`summary.json` 和默认 `approved: false` 的 `approval.json`；计划为每张卡记录将追加的标签、实际新增标签和确定的输出 SHA-256。若 `invalid_sources` 不为 0，不得批准。
+
+人工核对计划和空目标目录后，才可批准并执行：
+
+```powershell
+node .\src\110-write-classification-tags.mjs --execute `
+  .\reports\classification-tag-plans\<已批准计划批次>
+```
+
+执行会重新核对 100 计划、100 批准文件、100 完整执行汇总、110 计划和来源卡哈希，并验证每个写出文件与预览记录的输出 SHA-256 一致。目标文件已存在时拒绝覆盖；来源卡始终保留不变。

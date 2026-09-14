@@ -54,6 +54,8 @@ $env:MODEL_MAX_HTTP_REQUESTS = '100'
 
 可选调节项包括 `MODEL_BATCH_SIZE`、`MODEL_CONCURRENCY`、`MODEL_MAX_ATTEMPTS`、`MODEL_MAX_OUTPUT_TOKENS`、`MODEL_MIN_REQUEST_INTERVAL_MS` 与 `MODEL_RATE_LIMIT_BACKOFF_MS`。续跑必须匹配批次绑定配置，且不能降低请求预算。
 
+模型端点传输与授权边界：`localhost`、IPv4 `127.0.0.0/8` 和 IPv6 `::1`（包括 IPv4-mapped loopback）可使用 HTTP；非本地端点必须使用 HTTPS，并在每次 050–052 或 070 的调用（包括 `--dry-run` 和 `--resume`）中显式加入 `--allow-remote-model`。非本地 HTTP 始终拒绝，续跑不会继承或绕过该授权。
+
 ## 050–052：分类与复核
 
 预检会创建可续跑元数据，但不发送模型请求：

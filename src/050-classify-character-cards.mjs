@@ -8,7 +8,7 @@ import { basename, dirname, join, resolve } from 'node:path';
 import { readJsonlRecords } from './lib/read-jsonl.mjs';
 import { cardHashOf } from './lib/card-hash.mjs';
 import {
-  cardModelInput, CLASSIFICATION_SYSTEM_PREFIX, compact, createRequestBudget, hasSemanticContent, modelSettingsFromEnv,
+  cardModelInput, CLASSIFICATION_SYSTEM_PREFIX, compact, createRequestBudget, hasSemanticContent, modelSettingsFromEnv, validateModelEndpoint,
   requestModelJson, runWorkers, sha256Text, summarizeRequestEvents,
 } from './lib/model-client.mjs';
 import { createBatchDirectory, sha256File } from './lib/run-files.mjs';
@@ -27,7 +27,7 @@ const phaseDefaults = {
   batchSize: 30, concurrency: 1, maxOutputTokens: 4_096,
 };
 
-const { positionals, resumeArgument, dryRun } = parseModelPhaseArguments(args, '--resume 必须指定已有分类批次目录');
+const { positionals, resumeArgument, dryRun, allowRemoteModel } = parseModelPhaseArguments(args, '--resume 必须指定已有分类批次目录');
 
 async function latestFile(directory, fileName) {
   const candidates = [];
@@ -119,7 +119,9 @@ async function readCheckpoint(path, modelVersion) {
   return completed;
 }
 
-const modelSettings = modelSettingsFromEnv(phaseDefaults);
+const modelSettings = modelSettingsFromEnv({ ...phaseDefaults, allowRemoteModel });
+validateModelEndpoint(modelSettings);
+const remoteModelFlag = modelSettings.allowRemoteModel ? ' --allow-remote-model' : '';
 const httpLimit = positiveIntegerFromEnv('MODEL_MAX_HTTP_REQUESTS', 1_300);
 let batchDirectory; let runMetadata; let indexPath; let standardsPath; let runId;
 if (resumeArgument) {
@@ -213,7 +215,7 @@ if (dryRun) {
     max_output_tokens_per_request: modelSettings.maxOutputTokens, http_requests_reserved: historicalUsage.requests,
     http_request_limit: httpLimit, http_requests_remaining: Math.max(0, httpLimit - historicalUsage.requests),
     retry_and_split_reserve: Math.max(0, httpLimit - historicalUsage.requests - initialBatches.length),
-    run_command: `node .\\src\\050-classify-character-cards.mjs --resume="${batchDirectory}"`,
+    run_command: `node .\\src\\050-classify-character-cards.mjs --resume="${batchDirectory}"${remoteModelFlag}`,
   }, null, 2));
   return;
 }
@@ -270,7 +272,7 @@ if (workerError) {
   await writeFile(join(batchDirectory, 'fatal-error.json'), JSON.stringify({
     generated_utc: new Date().toISOString(), ...errorRecord(workerError), http_requests_total: budget.used,
     http_request_limit: budget.limit, http_requests_remaining: budget.remaining,
-    resume_command: `node .\\src\\050-classify-character-cards.mjs --resume="${batchDirectory}"`,
+    resume_command: `node .\\src\\050-classify-character-cards.mjs --resume="${batchDirectory}"${remoteModelFlag}`,
   }, null, 2), 'utf8');
   await new Promise((done) => setTimeout(done, 50));
   throw new Error(`${workerError.message}。检查点与调用额度已保存，可在排除问题后续跑：${batchDirectory}`);
@@ -339,7 +341,7 @@ const summary = {
   input_bytes_total: budget.inputBytes,
   input_bytes_this_process: budget.inputBytesThisProcess,
   resumed: Boolean(resumeArgument),
-  resume_command: `node .\\src\\050-classify-character-cards.mjs --resume="${batchDirectory}"`,
+  resume_command: `node .\\src\\050-classify-character-cards.mjs --resume="${batchDirectory}"${remoteModelFlag}`,
 };
 await writeFile(join(batchDirectory, 'summary.json'), JSON.stringify(summary, null, 2), 'utf8');
 await writeFile(join(batchDirectory, 'run.json'), JSON.stringify({

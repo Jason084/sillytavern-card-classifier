@@ -8,7 +8,7 @@ import { basename, dirname, join, resolve } from 'node:path';
 import { readJsonlRecords } from './read-jsonl.mjs';
 import { cardHashOf } from './card-hash.mjs';
 import {
-  cardModelInput, CLASSIFICATION_SYSTEM_PREFIX, compact, createRequestBudget, hasSemanticContent, modelSettingsFromEnv,
+  cardModelInput, CLASSIFICATION_SYSTEM_PREFIX, compact, createRequestBudget, hasSemanticContent, modelSettingsFromEnv, validateModelEndpoint,
   requestModelJson, runWorkers, sha256Text, summarizeRequestEvents,
 } from './model-client.mjs';
 import { createBatchDirectory, sha256File } from './run-files.mjs';
@@ -23,7 +23,7 @@ const sourceReportsDirectory = join(root, 'reports', config.sourceReportsName);
 const defaultReportsDirectory = join(root, 'reports', config.reportsName);
 const { promptVersion, phaseDefaults } = config;
 const requestPrefix = CLASSIFICATION_SYSTEM_PREFIX;
-const { positionals, resumeArgument, dryRun } = parseModelPhaseArguments(args, config.resumeError);
+const { positionals, resumeArgument, dryRun, allowRemoteModel } = parseModelPhaseArguments(args, config.resumeError);
 
 function allowedCategoriesFromStandards(text) {
   const categories = []; let collecting = false;
@@ -111,7 +111,9 @@ async function readCheckpoint(path, modelVersion, allowedCategories) {
   return completed;
 }
 
-const modelSettings = modelSettingsFromEnv(phaseDefaults);
+const modelSettings = modelSettingsFromEnv({ ...phaseDefaults, allowRemoteModel });
+validateModelEndpoint(modelSettings);
+const remoteModelFlag = modelSettings.allowRemoteModel ? ' --allow-remote-model' : '';
 const requestLimit = requestLimitFromEnv();
 let batchDirectory; let runMetadata; let sourceClassificationsPath; let standardsPath; let indexPath; let runId;
 if (resumeArgument) {
@@ -230,7 +232,7 @@ if (dryRun) {
     max_output_tokens_per_request: modelSettings.maxOutputTokens, http_requests_reserved: historicalUsage.requests,
     http_request_limit: requestLimit.configured ? requestLimit.limit : null,
     allowed_categories: allowedCategories,
-    run_command: `node .\\src\\${config.scriptName} --resume="${batchDirectory}"`,
+    run_command: `node .\\src\\${config.scriptName} --resume="${batchDirectory}"${remoteModelFlag}`,
   }, null, 2));
   return;
 }
@@ -294,7 +296,7 @@ if (workerError) {
   await writeFile(join(batchDirectory, 'fatal-error.json'), JSON.stringify({
     generated_utc: new Date().toISOString(), ...errorRecord(workerError), http_requests_total: budget.used,
     http_request_limit: requestLimit.configured ? budget.limit : null,
-    resume_command: `node .\\src\\${config.scriptName} --resume="${batchDirectory}"`,
+    resume_command: `node .\\src\\${config.scriptName} --resume="${batchDirectory}"${remoteModelFlag}`,
   }, null, 2), 'utf8');
   await new Promise((done) => setTimeout(done, 50));
   throw new Error(`${workerError.message}。检查点与调用记录已保存，可在排除问题后续跑：${batchDirectory}`);
@@ -407,7 +409,7 @@ const summary = {
   input_bytes_total: budget.inputBytes,
   input_bytes_this_process: budget.inputBytesThisProcess,
   resumed: Boolean(resumeArgument),
-  resume_command: `node .\\src\\${config.scriptName} --resume="${batchDirectory}"`,
+  resume_command: `node .\\src\\${config.scriptName} --resume="${batchDirectory}"${remoteModelFlag}`,
 };
 await writeFile(join(batchDirectory, 'summary.json'), JSON.stringify(summary, null, 2), 'utf8');
 await writeFile(join(batchDirectory, 'run.json'), JSON.stringify({

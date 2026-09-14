@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { isIP } from 'node:net';
 
 export const DEFAULT_MODEL_BATCH_SIZE = 10;
 export const DEFAULT_MODEL_CONCURRENCY = 2;
@@ -82,6 +83,40 @@ function configuredText(name, fallback = '') {
   return configured || String(fallback ?? '').trim();
 }
 
+function normalizedHostname(hostname) {
+  return String(hostname ?? '').trim().toLowerCase().replace(/^\[|\]$/g, '').replace(/\.$/u, '');
+}
+
+export function isLocalModelEndpoint(value) {
+  let url;
+  try { url = value instanceof URL ? value : new URL(String(value)); }
+  catch { return false; }
+  const hostname = normalizedHostname(url.hostname);
+  if (hostname === 'localhost') return true;
+  if (isIP(hostname) === 4) return hostname.split('.')[0] === '127';
+  if (isIP(hostname) !== 6) return false;
+  if (hostname === '::1') return true;
+  // WHATWG URL canonicalizes IPv4-mapped loopback addresses to hexadecimal.
+  return hostname.startsWith('::ffff:7f');
+}
+
+export function validateModelEndpoint(settings) {
+  let url;
+  try { url = new URL(String(settings?.url ?? '')); }
+  catch { throw new Error('MODEL_API_BASE_URL 必须是有效的模型 API 地址'); }
+  const local = isLocalModelEndpoint(url);
+  if (local && !['http:', 'https:'].includes(url.protocol)) {
+    throw new Error('本地模型端点必须使用 HTTP 或 HTTPS');
+  }
+  if (!local && url.protocol !== 'https:') {
+    throw new Error('非本地模型端点必须使用 HTTPS；远程 HTTP 端点不允许使用');
+  }
+  if (!local && settings?.allowRemoteModel !== true) {
+    throw new Error('使用非本地模型端点必须显式传入 --allow-remote-model');
+  }
+  return { url, local };
+}
+
 export function modelSettingsFromEnv(defaults = {}) {
   const configuredBaseUrl = String(process.env.MODEL_API_BASE_URL ?? '').trim();
   const baseUrl = configuredText('MODEL_API_BASE_URL', defaults.baseUrl).replace(/\/$/, '');
@@ -107,6 +142,7 @@ export function modelSettingsFromEnv(defaults = {}) {
     rateLimitBackoffMs: positiveInteger('MODEL_RATE_LIMIT_BACKOFF_MS', defaults.rateLimitBackoffMs ?? 5_000),
     confidenceThreshold,
     usingDefaultBaseUrl,
+    allowRemoteModel: defaults.allowRemoteModel === true,
   };
 }
 
@@ -250,6 +286,7 @@ async function reportEvent(onEvent, event) {
 }
 
 export async function requestModelJson(settings, messages, options = {}) {
+  validateModelEndpoint(settings);
   const {
     budget = null, onEvent = null, phase = 'model', requestId = null,
   } = options;

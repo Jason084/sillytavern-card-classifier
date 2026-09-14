@@ -125,6 +125,8 @@ Remove-Item Env:MODEL_API_KEY
 
 可选模型环境变量包括 `MODEL_API_BASE_URL`、`MODEL_NAME`、`MODEL_BATCH_SIZE`、`MODEL_CONCURRENCY`、`MODEL_MAX_ATTEMPTS`、`MODEL_MAX_OUTPUT_TOKENS` 和 `MODEL_MAX_HTTP_REQUESTS`。改变续跑批次绑定的设置会被拒绝。
 
+模型端点传输与授权边界：`localhost`、IPv4 `127.0.0.0/8` 和 IPv6 `::1`（包括 IPv4-mapped loopback）可使用 HTTP；非本地端点必须使用 HTTPS，并在每次 050–052 或 070 的调用（包括 `--dry-run` 和 `--resume`）中显式加入 `--allow-remote-model`。非本地 HTTP 始终拒绝，续跑不会继承或绕过该授权。
+
 ## 第六阶段：一级整理
 
 > **生成计划只写报告；`--execute` 会写文件。** 060 默认计划操作为 `copy`，但也支持 `--operation=move`。`move` 会在复制并校验后删除工作副本来源，风险显著更高。

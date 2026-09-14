@@ -36,7 +36,11 @@ test('所有 Node 阶段可安全导入并导出 main', async () => {
 test('公共 CLI 解析保持原选项和位置参数语义', () => {
   assert.deepEqual(
     parseModelPhaseArguments(['input', '--dry-run', '--resume=batch'], 'missing'),
-    { positionals: ['input'], resumeArgument: 'batch', dryRun: true },
+    { positionals: ['input'], resumeArgument: 'batch', dryRun: true, allowRemoteModel: false },
+  );
+  assert.deepEqual(
+    parseModelPhaseArguments(['input', '--allow-remote-model'], 'missing'),
+    { positionals: ['input'], resumeArgument: null, dryRun: false, allowRemoteModel: true },
   );
   assert.deepEqual(
     parseOrganizationArguments(['--execute', 'plan', '--operation=move'], { allowOperation: true }),

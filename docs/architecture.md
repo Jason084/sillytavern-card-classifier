@@ -16,9 +16,10 @@ Read-only source collection
                                     └─080 plan──approval──> refined copy
                                           └─090 fanwork IP merge proposals
                                                 └─100 plan──approval──> merged copy
+                                                      └─110 tag plan──approval──> tagged copy
 ```
 
-Reports and classifications are evidence, not file operations. Only approved execution modes in stages 060, 080, and 100 write organized card copies.
+Reports and classifications are evidence, not file operations. Only approved execution modes in stages 060, 080, 100, and 110 write card copies.
 
 ## Stage contracts
 
@@ -34,12 +35,13 @@ Reports and classifications are evidence, not file operations. Only approved exe
 | 080 organize refinement | Complete 070 batch and first-level copy | Approval-bound plan | Copy only |
 | 090 propose merges | Complete 070 and executed 080 evidence | Human-reviewable IP mapping | Reports only |
 | 100 organize merges | Approved 090 mapping and refined copy | Approval-bound full plan | Copy only |
+| 110 write classification tags | Approved and fully executed 100 plan and merged copy | Approval-bound tag plan | Writes new tagged copies; source remains unchanged |
 
 ## Identity and integrity
 
 A file record represents one physical file in one scan. Several records can share one logical card-content hash, allowing model calls to be deduplicated without losing path-level traceability. Each run receives its own directory and never overwrites an older batch.
 
-Model runs bind their input hashes, prompt version, endpoint configuration, and policy hash. Organization plans bind source paths, destination paths, operation type, and SHA-256 values. Before execution, the code rechecks the approval, plan hash, source hash, and destination boundary.
+Model runs bind their input hashes, prompt version, endpoint configuration, and policy hash. Organization and tagging plans bind source paths, destination paths, operation type, and SHA-256 values. Before execution, the code rechecks the approval, plan hash, source hash, and destination boundary. Stage 110 additionally binds the stage-100 plan, approval, and complete execution summary, and records each deterministic output hash before execution.
 
 ## Model boundary
 

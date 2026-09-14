@@ -85,6 +85,74 @@ function decodeMetadata(text) {
   return JSON.parse(raw);
 }
 
+function normalizedTag(value) {
+  return String(value ?? '').normalize('NFKC').trim();
+}
+
+function appendCardTags(card, version, additions) {
+  const data = version === 1 ? card : card.data;
+  if (!isObject(data)) throw new Error('supported card has no object-valued data field');
+  const originalTags = array(data.tags);
+  const tags = [...originalTags];
+  const seen = new Set(tags.map(normalizedTag).filter(Boolean));
+  const addedTags = [];
+  for (const addition of additions) {
+    const tag = normalizedTag(addition);
+    if (!tag || seen.has(tag)) continue;
+    tags.push(tag); seen.add(tag); addedTags.push(tag);
+  }
+  data.tags = tags;
+  return { originalTags, tags, addedTags };
+}
+
+function pngChunk(type, data) {
+  const typeBytes = Buffer.from(type, 'ascii');
+  const body = Buffer.concat([typeBytes, data]);
+  const length = Buffer.alloc(4); length.writeUInt32BE(data.length);
+  const crc = Buffer.alloc(4); crc.writeUInt32BE(crc32(body, 0, body.length));
+  return Buffer.concat([length, body, crc]);
+}
+
+function writePngCardTags(buffer, additions) {
+  const parsed = parsePng(buffer);
+  if (parsed.status !== 'ok') throw new Error(`无法写入 PNG 角色卡：${parsed.detail}`);
+  const output = [buffer.subarray(0, 8)];
+  let offset = 8; let primaryResult = null; let metadataChunksUpdated = 0;
+  while (offset < buffer.length) {
+    const chunkStart = offset;
+    const length = buffer.readUInt32BE(offset); offset += 4;
+    const type = buffer.toString('ascii', offset, offset + 4); offset += 4;
+    const data = buffer.subarray(offset, offset + length); offset += length + 4;
+    let replacement = null;
+    if (type === 'tEXt') {
+      const nul = data.indexOf(0);
+      if (nul > 0 && nul < data.length - 1) {
+        const keyword = data.toString('ascii', 0, nul).toLowerCase();
+        if (keyword === 'ccv3' || keyword === 'chara') {
+          try {
+            const card = decodeMetadata(data.toString('latin1', nul + 1));
+            const version = versionOf(card);
+            if (version) {
+              const result = appendCardTags(card, version, additions);
+              const encoded = Buffer.from(JSON.stringify(card), 'utf8').toString('base64');
+              replacement = pngChunk(type, Buffer.from(`${data.toString('ascii', 0, nul)}\0${encoded}`, 'latin1'));
+              metadataChunksUpdated += 1;
+              if (keyword === parsed.metadata_chunk && !primaryResult) primaryResult = { ...result, version };
+            }
+          } catch { /* 保留无法解析的兼容元数据块。 */ }
+        }
+      }
+    }
+    output.push(replacement ?? buffer.subarray(chunkStart, offset));
+    if (type === 'IEND') {
+      if (offset < buffer.length) output.push(buffer.subarray(offset));
+      break;
+    }
+  }
+  if (!primaryResult || !metadataChunksUpdated) throw new Error('没有可写入的 PNG 角色卡元数据块');
+  return { buffer: Buffer.concat(output), ...primaryResult, metadataChunksUpdated };
+}
+
 function parsePng(buffer) {
   if (buffer.length < 8 || !buffer.subarray(0, 8).equals(PNG_SIGNATURE)) return { status: 'invalid_png', detail: 'PNG signature is missing or invalid' };
   let offset = 8; let sawIend = false; const chunks = [];
@@ -131,4 +199,17 @@ function parseJson(buffer) {
 
 export function parseCardFile(buffer, extension) {
   return extension.toLowerCase() === '.png' ? parsePng(buffer) : parseJson(buffer);
+}
+
+export function addTagsToCardFile(buffer, extension, additions) {
+  const normalizedExtension = extension.toLowerCase();
+  if (normalizedExtension === '.png') return writePngCardTags(buffer, additions);
+  if (normalizedExtension !== '.json') throw new Error(`不支持的角色卡扩展名：${extension}`);
+  const parsed = parseJson(buffer);
+  if (parsed.status !== 'ok') throw new Error(`无法写入 JSON 角色卡：${parsed.detail}`);
+  const result = appendCardTags(parsed.card, parsed.version, additions);
+  return {
+    buffer: Buffer.from(`${JSON.stringify(parsed.card, null, 2)}\n`, 'utf8'),
+    ...result, version: parsed.version, metadataChunksUpdated: 0,
+  };
 }

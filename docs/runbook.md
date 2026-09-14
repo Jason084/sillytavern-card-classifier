@@ -162,3 +162,39 @@ node .\src\100-organize-merged-character-cards.mjs --execute `
 ```
 
 The 090 approval and 100 plan approval are independent. Keep execution summaries with their plan directories for auditability.
+
+## 110: write classification tags
+
+Preview reads card content and writes a report batch. `--execute` writes content-modified copies to a new empty destination. Stage 110 does not call a model and never changes the stage-100 merged source.
+
+The four positional arguments are the fully executed and approved stage-100 batch, its merged-card destination, a new tagged-card destination, and the tag-plan report root:
+
+```powershell
+node .\src\110-write-classification-tags.mjs `
+  .\reports\fanwork-ip-merge-plans\<executed-plan-run> `
+  .\data\同人IP归并角色卡 `
+  .\data\带分类标签角色卡 `
+  .\reports\classification-tag-plans
+```
+
+Existing tags are preserved. Every card receives its first-level category, and fanwork cards also receive the approved final IP. Duplicate normalized tags are not appended. The preview verifies source hashes, parses supported Character Card V1/V2/V3 JSON or PNG metadata, and records each deterministic output hash in `plan.jsonl`, `plan.csv`, `summary.json`, and a default-deny `approval.json`.
+
+If a known malformed card cannot be rewritten, it can be included only as an explicit unchanged-copy exception. Use a safe path relative to the merged-card root; repeat the option for multiple reviewed exceptions:
+
+```powershell
+node .\src\110-write-classification-tags.mjs `
+  .\reports\fanwork-ip-merge-plans\<executed-plan-run> `
+  .\data\同人IP归并角色卡 `
+  .\data\带分类标签角色卡 `
+  .\reports\classification-tag-plans `
+  --copy-unchanged='<category/card.png>'
+```
+
+Do not approve a plan whose `invalid_sources` is nonzero. After reviewing the plan, exception list, and empty destination, set `approved` to `true` in that batch and execute:
+
+```powershell
+node .\src\110-write-classification-tags.mjs --execute `
+  .\reports\classification-tag-plans\<approved-plan-run>
+```
+
+Execution rechecks the stage-100 plan, its approval and complete execution summary, the stage-110 approval, all source hashes, and all expected output hashes. Existing destination files are never overwritten.

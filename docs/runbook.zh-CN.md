@@ -162,3 +162,39 @@ node .\src\100-organize-merged-character-cards.mjs --execute `
 ```
 
 090 候选批准与 100 计划批准相互独立。执行汇总应与计划目录一起保留，以便审计。
+
+## 110：写入分类标签
+
+预览会读取角色卡正文并写入报告批次；`--execute` 会把内容已变化的副本写入新的空目标目录。110 不调用模型，也不会修改第 100 阶段的归并来源。
+
+四个位置参数依次是“已批准且完整执行的 100 批次、其归并卡目标目录、新的带标签卡目标目录、标签计划报告根目录”：
+
+```powershell
+node .\src\110-write-classification-tags.mjs `
+  .\reports\fanwork-ip-merge-plans\<已执行计划批次> `
+  .\data\同人IP归并角色卡 `
+  .\data\带分类标签角色卡 `
+  .\reports\classification-tag-plans
+```
+
+脚本保留已有标签，为每张卡追加一级分类；同人卡还会追加已批准的最终 IP。规范化后同名的标签不会重复追加。预览逐卡核对来源哈希，解析支持的 Character Card V1/V2/V3 JSON 或 PNG 元数据，并把确定性输出哈希写入 `plan.jsonl`、`plan.csv`、`summary.json` 和默认不批准的 `approval.json`。
+
+如果某张已知异常卡无法重写，只能把它作为显式的原样复制例外加入计划。参数值必须是相对于归并卡根目录的安全路径；多个已审核例外应重复指定该选项：
+
+```powershell
+node .\src\110-write-classification-tags.mjs `
+  .\reports\fanwork-ip-merge-plans\<已执行计划批次> `
+  .\data\同人IP归并角色卡 `
+  .\data\带分类标签角色卡 `
+  .\reports\classification-tag-plans `
+  --copy-unchanged='<分类/角色卡.png>'
+```
+
+`invalid_sources` 不为 0 的计划不得批准。人工核对计划、例外清单和空目标目录后，把该批次 `approval.json` 中的 `approved` 改为 `true`，再执行：
+
+```powershell
+node .\src\110-write-classification-tags.mjs --execute `
+  .\reports\classification-tag-plans\<已批准计划批次>
+```
+
+执行会重新核对第 100 阶段计划、其批准文件与完整执行摘要、第 110 阶段批准文件、全部来源哈希和预期输出哈希。已有目标文件不会被覆盖。

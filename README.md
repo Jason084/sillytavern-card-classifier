@@ -3,7 +3,7 @@
 [简体中文](./README.zh-CN.md)
 
 <p align="center">
-  <img src="./assets/readme/hero.webp" width="100%" alt="SillyTavern character card classification and audit tool cover">
+  <img src="./assets/readme/hero.en.webp" width="100%" alt="SillyTavern character card classification and audit tool cover">
 </p>
 
 Looking for character cards by fandom, school, modern setting, romance, or other themes should not require opening them one by one. This project reads the card content, places cards into easier-to-browse categories, and then writes those categories into card tags so you can keep filtering them in SillyTavern.
@@ -36,7 +36,7 @@ See [current status](./docs/status.md) for complete batch records, classificatio
 ## How it protects your collection
 
 <p align="center">
-  <img src="./assets/readme/workflow.svg" width="100%" alt="Original collection remains read-only; cards are copied to a working copy for scanning, deduplication, classification, and plan generation, then copied to a classified copy only after manual approval">
+  <img src="./assets/readme/workflow.en.svg" width="100%" alt="Original collection remains read-only; cards are copied to a working copy for scanning, deduplication, classification, and plan generation, then copied to a classified copy only after manual approval">
 </p>
 
 - **Sources are read-only**: collection only copies files; it does not move, delete, or rewrite the original collection.
